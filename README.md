@@ -8,3 +8,7 @@ We want to question whether Protein Folding/Protein Inverse Folding are two sepe
 We try two approaches to tackle our problem:
 - Contrastive Pre-Training to obtain joint embeddings for protein structure and sequences.
 - Non-Contrastive, Latent Variable Pre-Training to obtain joint embeddings for protein structure and sequences.
+
+
+## Setup
+This repository is directly built upon ESM. Setup a new environment and install esm through [this documentation](https://github.com/facebookresearch/esm/tree/main/examples/inverse_folding#recommended-environment).
