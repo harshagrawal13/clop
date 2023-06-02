@@ -24,7 +24,6 @@ class ESMDataset(Dataset):
         return self.num_chunks * self.chunk_size
 
     def open_chunk(self, chunk_idx):
-        print("Opening Chunk: ", chunk_idx)
         self.currently_opened_chunk["chunk_idx"] = chunk_idx
 
         chunk_dir = os.path.join(os.getcwd(), self.chunks_dir, str(chunk_idx))
@@ -57,7 +56,6 @@ class ESMDataset(Dataset):
             self.currently_opened_chunk["structure"][protein_idx],
             dtype=np.float32,
         )
-        # print(protein_structure.shape)
         protein_sequence = self.currently_opened_chunk["sequence"][protein_idx]
         protein_name = self.currently_opened_chunk["prot_names"][protein_idx]
         return protein_structure, None, protein_sequence
