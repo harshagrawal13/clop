@@ -14,6 +14,8 @@ class JESPR(pl.LightningModule):
         esm_data_loader: ESMDataLoader,
         esm2: ESM2,
         esm_if: gvp_transformer.GVPTransformerModel,
+        esm2_out_size=640,
+        esm_if_out_size=1280,
     ) -> None:
         super().__init__()
 
@@ -25,8 +27,8 @@ class JESPR(pl.LightningModule):
         self.esm_if = esm_if
 
         # Linear projection to 512 dim
-        self.structure_emb_linear = nn.Linear(512, 512)
-        self.seq_emb_linear = nn.Linear(1280, 512)
+        self.structure_emb_linear = nn.Linear(esm2_out_size, 512)
+        self.seq_emb_linear = nn.Linear(esm_if_out_size, 512)
 
         # For scaling the cosing similarity score
         self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
