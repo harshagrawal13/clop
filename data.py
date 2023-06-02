@@ -9,32 +9,23 @@ from esm import Alphabet
 
 
 class ESMDataset(Dataset):
-    def __init__(self, chunks_dir="data/chunks", chunk_size=100):
-        self.chunk_size = chunk_size
-        self.chunks_dir = chunks_dir
-        self.num_chunks = len(os.listdir(chunks_dir))
-        self.currently_opened_chunk = {
-            "chunk_idx": 0,
-            "structure": None,
-            "sequence": None,
-            "prot_names": None,
-        }
+    def __init__(self, data_dir="data/chunks", chunk_size=100):
+        data_dir_complete = os.path.join(os.getcwd(), data_dir)
+        with open(
+            os.path.join(data_dir_complete, "all_structures.json"), "r"
+        ) as f:
+            self.structure_data = json.load(f)
+
+        with open(os.path.join(data_dir_complete, "all_seqs.json"), "r") as f:
+            self.sequence_data = json.load(f)
+
+        with open(
+            os.path.join(data_dir_complete, "all_prot_names.json"), "r"
+        ) as f:
+            self.prot_names = json.load(f)
 
     def __len__(self):
-        return self.num_chunks * self.chunk_size
-
-    def open_chunk(self, chunk_idx):
-        self.currently_opened_chunk["chunk_idx"] = chunk_idx
-
-        chunk_dir = os.path.join(os.getcwd(), self.chunks_dir, str(chunk_idx))
-        with open(os.path.join(chunk_dir, "structure.json"), "r") as f:
-            self.currently_opened_chunk["structure"] = json.load(f)
-
-        with open(os.path.join(chunk_dir, "seq.json"), "r") as f:
-            self.currently_opened_chunk["sequence"] = json.load(f)
-
-        with open(os.path.join(chunk_dir, "prot_names.json"), "r") as f:
-            self.currently_opened_chunk["prot_names"] = json.load(f)
+        return len(self.prot_names)
 
     def __getitem__(self, idx):
         """Returns the idx-th protein in the dataset
@@ -47,17 +38,12 @@ class ESMDataset(Dataset):
             protein structure, confidence (None), and the protein sequence
         """
         # chunk where the idx-th protein is located
-        chunk_location = idx // self.chunk_size + 1
-        if chunk_location != self.currently_opened_chunk["chunk_idx"]:
-            self.open_chunk(chunk_location)
-
-        protein_idx = idx % self.chunk_size
         protein_structure = np.array(
-            self.currently_opened_chunk["structure"][protein_idx],
+            self.structure_data[idx],
             dtype=np.float32,
         )
-        protein_sequence = self.currently_opened_chunk["sequence"][protein_idx]
-        protein_name = self.currently_opened_chunk["prot_names"][protein_idx]
+        protein_sequence = self.sequence_data[idx]
+        # protein_name = self.currently_opened_chunk["prot_names"][protein_idx]
         return protein_structure, None, protein_sequence
 
 
@@ -65,19 +51,19 @@ class ESMDataLoader(DataLoader):
     def __init__(
         self,
         alphabet: Alphabet,
-        chunk_dir="data/chunks",
-        chunk_size=100,
+        data_dir="data/",
         batch_size=64,
         shuffle=True,
         num_workers=1,
     ):
         self.alphabet = alphabet
         self.collate_fn = util.CoordBatchConverter(alphabet)
-        self.dataset = ESMDataset(chunks_dir=chunk_dir, chunk_size=chunk_size)
+        self.dataset = ESMDataset(data_dir=data_dir)
         super().__init__(
             dataset=self.dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
             collate_fn=self.collate_fn,
+            pin_memory=False,
         )
