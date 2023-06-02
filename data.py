@@ -2,12 +2,10 @@ import os
 import numpy as np
 import json
 
-import torch
 from torch.utils.data import Dataset, DataLoader
 
-import esm
-from esm.inverse_folding import util, gvp_transformer
-from esm import Alphabet, ESM2
+from esm.inverse_folding import util
+from esm import Alphabet
 
 
 class ESMDataset(Dataset):
@@ -75,6 +73,7 @@ class ESMDataLoader(DataLoader):
         shuffle=True,
         num_workers=1,
     ):
+        self.alphabet = alphabet
         self.collate_fn = util.CoordBatchConverter(alphabet)
         self.dataset = ESMDataset(chunks_dir=chunk_dir, chunk_size=chunk_size)
         super().__init__(
