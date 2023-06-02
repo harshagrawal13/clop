@@ -14,9 +14,21 @@ class JESPR(pl.LightningModule):
         esm_data_loader: ESMDataLoader,
         esm2: ESM2,
         esm_if: gvp_transformer.GVPTransformerModel,
-        esm2_out_size=640,
-        esm_if_out_size=1280,
+        **kwargs,
     ) -> None:
+        """
+        JESPR Model
+        Args:
+            esm_data_loader (ESMDataLoader): ESMDataLoader
+            esm2 (ESM2): ESM2 Model
+            esm_if (gvp_transformer.GVPTransformerModel): ESM-IF Model
+
+        Keyword Args:
+            num_esm2_layers (int): Number of ESM2 Layers to use (30/33). Defaults to 30.
+            esm2_out_size (int): ESM2 Output Size. Defaults to 640.
+            esm_if_out_size (int): ESM-IF Output Size. Defaults to 1280.
+            final_emb_size (int): Final Embedding Size. Defaults to 512.
+        """
         super().__init__()
 
         self.esm_data_loader = esm_data_loader
@@ -26,15 +38,20 @@ class JESPR(pl.LightningModule):
         # Protein Structure Model
         self.esm_if = esm_if
 
+        # Model params
+        self.num_esm2_layers = kwargs.get("num_esm2_layers", 30)
+        esm2_out_size = kwargs.get("esm2_out_size", 640)
+        esm_if_out_size = kwargs.get("esm_if_out_size", 512)
+        final_emb_size = kwargs.get("final_emb_size", 512)
+
         # Linear projection to 512 dim
-        self.structure_emb_linear = nn.Linear(esm2_out_size, 512)
-        self.seq_emb_linear = nn.Linear(esm_if_out_size, 512)
+        self.structure_emb_linear = nn.Linear(esm_if_out_size, final_emb_size)
+        self.seq_emb_linear = nn.Linear(esm2_out_size, final_emb_size)
 
         # For scaling the cosing similarity score
-        self.logit_scale = nn.Parameter(torch.ones([]) * np.log(1 / 0.07))
         self.temperature = torch.tensor(1)
 
-    def forward(self, x, num_esm2_layers=30) -> tuple:
+    def forward(self, x) -> tuple:
         """Foward Function for JESPR
 
         Args:
@@ -48,8 +65,8 @@ class JESPR(pl.LightningModule):
 
         # ESM2 - Sequence Embeddings
         esm2_logits = self.esm2(
-            tokens, repr_layers=[num_esm2_layers], return_contacts=False
-        )["representations"][num_esm2_layers]
+            tokens, repr_layers=[self.num_esm2_layers], return_contacts=False
+        )["representations"][self.num_esm2_layers]
 
         # ESM-IF - Structure Embeddings
         esm_if_logits = self.esm_if.encoder.forward(
