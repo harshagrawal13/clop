@@ -7,8 +7,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import lightning.pytorch as pl
 from esm.inverse_folding import gvp_transformer
-import esm
-from esm import ESM2
+from esm import pretrained
 from data import ESMDataLoader
 
 
@@ -33,15 +32,15 @@ class InitEsmModules:
         self.num_del_layers = kwargs.get("num_del_layers", 6)
 
     def __call__(self):
-        esm2, _ = esm.pretrained.esm2_t6_8M_UR50D()
-        _, alphabet_if = esm.pretrained.esm_if1_gvp4_t16_142M_UR50()
+        esm2, _ = pretrained.esm2_t6_8M_UR50D()
+        _, alphabet_if = pretrained.esm_if1_gvp4_t16_142M_UR50()
 
         args_if = json.load(open(self.args_dir, "r"))
         args_if["gvp_node_hidden_dim_scalar"] = self.gvp_node_hidden_dim_scalar
         args_if["gvp_node_hidden_dim_vector"] = self.gvp_node_hidden_dim_vector
         args_if = Namespace(**args_if)
 
-        esm_if = esm.inverse_folding.gvp_transformer.GVPTransformerModel(
+        esm_if = gvp_transformer.GVPTransformerModel(
             args_if,
             alphabet_if,
         )
@@ -89,16 +88,12 @@ class JESPR(pl.LightningModule):
         )
         self.num_del_layers = kwargs.get("num_del_layers", 6)
 
-        esm_models = InitEsmModules(
+        self.esm2, self.esm_if = InitEsmModules(
             self.args_dir,
             self.gvp_node_hidden_dim_scalar,
             self.gvp_node_hidden_dim_vector,
             self.num_del_layers,
         )()
-        # Protein Sequence Model
-        self.esm2 = esm_models[0]
-        # Protein Structure Model
-        self.esm_if = esm_models[1]
 
         # Model params
         self.num_esm2_layers = kwargs.get("num_esm2_layers", 30)
