@@ -1,42 +1,99 @@
+import os
+import json
+from argparse import Namespace
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import lightning.pytorch as pl
 from esm.inverse_folding import gvp_transformer
-from esm import ESM2
+from esm import pretrained
 from data import ESMDataLoader
+
+
+class InitEsmModules:
+    def __init__(self, **kwargs):
+        """
+        Keyword Args:
+            args_dir (str): Path to args.json file for ESM-IF. Defaults to args.json in current working directory.
+            gvp_node_hidden_dim_scalar (int): ESM-IF GVP Scalar Hidden Dim. Defaults to 1024.
+            gvp_node_hidden_dim_vector (int): ESM-IF GVP Vector Hidden Dim. Defaults to 256.
+            num_del_layers (int): Number of ESM-IF Layers to delete. Defaults to 6.
+        """
+        self.args_dir = kwargs.get(
+            "args_dir", os.path.join(os.getcwd(), "args.json")
+        )
+        self.gvp_node_hidden_dim_scalar = kwargs.get(
+            "gvp_node_hidden_dim_scalar", 1024
+        )
+        self.gvp_node_hidden_dim_vector = kwargs.get(
+            "gvp_node_hidden_dim_vector", 256
+        )
+        self.num_del_layers = kwargs.get("num_del_layers", 6)
+
+    def __call__(self):
+        esm2, _ = pretrained.esm2_t6_8M_UR50D()
+        _, alphabet_if = pretrained.esm_if1_gvp4_t16_142M_UR50()
+
+        args_if = json.load(open(self.args_dir, "r"))
+        args_if["gvp_node_hidden_dim_scalar"] = self.gvp_node_hidden_dim_scalar
+        args_if["gvp_node_hidden_dim_vector"] = self.gvp_node_hidden_dim_vector
+        args_if = Namespace(**args_if)
+
+        esm_if = gvp_transformer.GVPTransformerModel(
+            args_if,
+            alphabet_if,
+        )
+
+        del esm_if.decoder
+        del esm_if.encoder.layers[1 : self.num_del_layers + 1]
+
+        return esm2, esm_if
 
 
 class JESPR(pl.LightningModule):
     def __init__(
         self,
         esm_data_loader: ESMDataLoader,
-        esm2: ESM2,
-        esm_if: gvp_transformer.GVPTransformerModel,
         **kwargs,
     ) -> None:
         """
         JESPR Model
+
         Args:
             esm_data_loader (ESMDataLoader): ESMDataLoader
-            esm2 (ESM2): ESM2 Model
-            esm_if (gvp_transformer.GVPTransformerModel): ESM-IF Model
 
         Keyword Args:
+            args_dir (str): Path to args.json file for ESM-IF. Defaults to args.json in current working directory.
             num_esm2_layers (int): Number of ESM2 Layers to use (30/33). Defaults to 30.
             esm2_out_size (int): ESM2 Output Size. Defaults to 640.
             esm_if_out_size (int): ESM-IF Output Size. Defaults to 1280.
             final_emb_size (int): Final Embedding Size. Defaults to 512.
+            gvp_node_hidden_dim_scalar (int): ESM-IF GVP Scalar Hidden Dim. Defaults to 1024.
+            gvp_node_hidden_dim_vector (int): ESM-IF GVP Vector Hidden Dim. Defaults to 256.
+            num_del_layers (int): Number of ESM-IF Layers to delete. Defaults to 6.
         """
         super().__init__()
 
         self.esm_data_loader = esm_data_loader
 
-        # Protein Sequence Model
-        self.esm2 = esm2
-        # Protein Structure Model
-        self.esm_if = esm_if
+        self.args_dir = kwargs.get(
+            "args_dir", os.path.join(os.getcwd(), "args.json")
+        )
+        self.gvp_node_hidden_dim_scalar = kwargs.get(
+            "gvp_node_hidden_dim_scalar", 1024
+        )
+        self.gvp_node_hidden_dim_vector = kwargs.get(
+            "gvp_node_hidden_dim_vector", 256
+        )
+        self.num_del_layers = kwargs.get("num_del_layers", 6)
+
+        self.esm2, self.esm_if = InitEsmModules(
+            self.args_dir,
+            self.gvp_node_hidden_dim_scalar,
+            self.gvp_node_hidden_dim_vector,
+            self.num_del_layers,
+        )()
 
         # Model params
         self.num_esm2_layers = kwargs.get("num_esm2_layers", 30)
