@@ -89,10 +89,10 @@ class JESPR(pl.LightningModule):
         self.num_del_layers = kwargs.get("num_del_layers", 6)
 
         self.esm2, self.esm_if = InitEsmModules(
-            self.args_dir,
-            self.gvp_node_hidden_dim_scalar,
-            self.gvp_node_hidden_dim_vector,
-            self.num_del_layers,
+            args_dir=self.args_dir,
+            gvp_node_hidden_dim_scalar=self.gvp_node_hidden_dim_scalar,
+            gvp_node_hidden_dim_vector=self.gvp_node_hidden_dim_vector,
+            num_del_layers=self.num_del_layers,
         )()
 
         # Model params
