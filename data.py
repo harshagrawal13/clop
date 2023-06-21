@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import json
+import pickle
 
 from torch.utils.data import Dataset, DataLoader
 
@@ -12,9 +13,9 @@ class ESMDataset(Dataset):
     def __init__(self, data_dir="data/chunks", chunk_size=100):
         data_dir_complete = os.path.join(os.getcwd(), data_dir)
         with open(
-            os.path.join(data_dir_complete, "all_structures.json"), "r"
+            os.path.join(data_dir_complete, "all_structures.pkl"), "rb"
         ) as f:
-            self.structure_data = json.load(f)
+            self.structure_data = pickle.load(f)
 
         with open(os.path.join(data_dir_complete, "all_seqs.json"), "r") as f:
             self.sequence_data = json.load(f)
@@ -38,10 +39,7 @@ class ESMDataset(Dataset):
             protein structure, confidence (None), and the protein sequence
         """
         # chunk where the idx-th protein is located
-        protein_structure = np.array(
-            self.structure_data[idx],
-            dtype=np.float32,
-        )
+        protein_structure = self.structure_data[idx]
         protein_sequence = self.sequence_data[idx]
         # protein_name = self.currently_opened_chunk["prot_names"][protein_idx]
         return protein_structure, None, protein_sequence
