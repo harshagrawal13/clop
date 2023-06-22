@@ -1,4 +1,4 @@
-import os
+from os import path
 import numpy as np
 import json
 import pickle
@@ -10,21 +10,42 @@ from esm import Alphabet
 
 
 class ESMDataset(Dataset):
-    def __init__(self, data_dir="data/chunks", chunk_size=100):
-        data_dir_complete = os.path.join(os.getcwd(), data_dir)
+    def __init__(self, data_dir="data", max_seq_len=200):
+        data_dir_complete = path.join(path.abspath(path.join(__file__, "..")), data_dir)
         with open(
-            os.path.join(data_dir_complete, "all_structures.pkl"), "rb"
+            path.join(data_dir_complete, "all_structures.pkl"), "rb"
         ) as f:
             self.structure_data = pickle.load(f)
 
-        with open(os.path.join(data_dir_complete, "all_seqs.json"), "r") as f:
+        with open(path.join(data_dir_complete, "all_seqs.json"), "r") as f:
             self.sequence_data = json.load(f)
 
         with open(
-            os.path.join(data_dir_complete, "all_prot_names.json"), "r"
+            path.join(data_dir_complete, "all_prot_names.json"), "r"
         ) as f:
             self.prot_names = json.load(f)
+        self.filter_data(max_seq_len)
 
+    def filter_data(self, max_seq_len: int):
+        """Filter the dataset by sequence length
+
+        Args:
+            max_seq_len (int): Maximum sequence length
+        """
+        structure_data = []
+        sequence_data = []
+        prot_names = []
+        for i, seq in enumerate(self.sequence_data):
+            if len(seq) <= max_seq_len:
+                structure_data.append(self.structure_data[i])
+                sequence_data.append(seq)
+                prot_names.append(self.prot_names[i])
+        
+        # update the dataset
+        self.structure_data = structure_data
+        self.sequence_data = sequence_data
+        self.prot_names = prot_names
+    
     def __len__(self):
         return len(self.prot_names)
 
