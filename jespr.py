@@ -107,6 +107,7 @@ class JESPR(pl.LightningModule):
 
         # For scaling the cosing similarity score
         self.temperature = torch.tensor(1)
+        self.loss_fn = nn.CrossEntropyLoss()
 
     def forward(self, x) -> tuple:
         """Foward Function for JESPR
@@ -139,7 +140,7 @@ class JESPR(pl.LightningModule):
         # Batch Size * Residue Length * Embedding Size
         B, _, E = seq_embeddings.shape
 
-        pooled_seq_embeddings = torch.empty(B, E)
+        pooled_seq_embeddings = torch.empty(B, E, device=seq_embeddings.device)
         pooled_structure_embeddings = torch.empty_like(pooled_seq_embeddings)
 
         batch_padding_lens = (
@@ -176,19 +177,9 @@ class JESPR(pl.LightningModule):
             pooled_seq_embeddings @ pooled_structure_embeddings.T
         ) / self.temperature
 
-        batch_structure_similarity = (
-            pooled_structure_embeddings @ pooled_structure_embeddings.T
-        )
-        batch_seq_similarity = pooled_seq_embeddings @ pooled_seq_embeddings.T
-        targets = F.softmax(
-            (batch_seq_similarity + batch_structure_similarity)
-            / 2
-            * self.temperature,
-            dim=-1,
-        )
-        # TODO: Explore having two individual losses
-        loss = self.cross_entropy(logits, targets, reduction="mean")
-        return loss, logits
+        loss = self.loss_fn(logits, torch.arange(B, device=logits.device))
+        return logits, loss
+
 
     @staticmethod
     def cross_entropy(preds, targets, reduction="none"):
