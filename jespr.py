@@ -178,7 +178,7 @@ class JESPR(pl.LightningModule):
         ) / self.temperature
 
         loss = self.loss_fn(logits, torch.arange(B, device=logits.device))
-        return logits, loss
+        return loss, logits
 
 
     @staticmethod
