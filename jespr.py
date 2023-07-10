@@ -83,7 +83,7 @@ class JESPR(pl.LightningModule):
         pooled_structure_embeddings = torch.empty_like(pooled_seq_embeddings)
 
         batch_padding_lens = (
-            tokens != self.esm_data_loader.alphabet.padding_idx
+            tokens != self.esm_data_loader.esm_if_alphabet.padding_idx
         ).sum(1)
 
         # Average Pooling to get a single sequence
