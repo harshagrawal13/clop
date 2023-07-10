@@ -5,13 +5,36 @@ import pickle
 from typing import Tuple
 import torch
 from torch.utils.data import Dataset, DataLoader
+from lightning.pytorch.core import LightningDataModule
 
 from esm.inverse_folding import util
 from esm import Alphabet
 
+DEFAULT_NUM_WORKERS = 1
+DEFAULT_BATCH_SIZE = 64
+MAX_SEQ_LEN = 200
+DEFAULT_SPLIT_RATIO = 0.8
+DEFAULT_SHUFFLE = True
+DEFAULT_PIN_MEMORY = False
+DEFUALT_SPLIT = "train"
+DEFAULT_DATA_DIR = "data/"
+
 
 class ESMDataset(Dataset):
-    def __init__(self, data_dir="data", max_seq_len=200):
+    def __init__(
+        self,
+        data_dir=DEFAULT_DATA_DIR,
+        max_seq_len=MAX_SEQ_LEN,
+        split=DEFUALT_SPLIT,
+        **kwargs,
+    ):
+        """ESM Dataset: torch.utils.data.Dataset
+
+        Args:
+            data_dir (str): Data Directory. Defaults to DEFAULT_DATA_DIR.
+            dataset_type (str): Dataset type. Defaults to "train".
+            max_seq_len (int): Max Sequence Length. Defaults to 200.
+        """
         data_dir_complete = path.join(
             path.abspath(path.join(__file__, "..")), data_dir
         )
@@ -28,6 +51,29 @@ class ESMDataset(Dataset):
         ) as f:
             self.prot_names = json.load(f)
         self.filter_data(max_seq_len)
+
+        # Split data
+        split_ratio = kwargs.get("split_ratio", DEFAULT_SPLIT_RATIO)
+        # return train/valid/test data
+        self.split_data(split, split_ratio)
+
+    def split_data(self, split, split_ratio):
+        assert split in [
+            "train",
+            "val",
+        ], f"Split: {split} must be train/val"
+
+        # Data Split Index = Split Ratio * Total Dataset Length
+        data_split_idx = split_ratio * self.__len__()
+
+        if split == "train":
+            self.structure_data = self.structure_data[: int(data_split_idx)]
+            self.sequence_data = self.sequence_data[: int(data_split_idx)]
+            self.prot_names = self.prot_names[: int(data_split_idx)]
+        else:
+            self.structure_data = self.structure_data[int(data_split_idx) :]
+            self.sequence_data = self.sequence_data[int(data_split_idx) :]
+            self.prot_names = self.prot_names[int(data_split_idx) :]
 
     def filter_data(self, max_seq_len: int):
         """Filter the dataset by sequence length
@@ -49,18 +95,22 @@ class ESMDataset(Dataset):
         self.sequence_data = sequence_data
         self.prot_names = prot_names
 
-    def __len__(self):
+    def __len__(self) -> int:
+        """Returns the length of the dataset
+
+        Returns:
+            _type_: _description_
+        """
         return len(self.prot_names)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, idx) -> Tuple[np.ndarray, None, str]:
         """Returns the idx-th protein in the dataset
 
         Args:
             idx (Protein index): Protein Index
 
         Returns:
-            tuple: A tuple containing the
-            protein structure, confidence (None), and the protein sequence
+            Tuple[np.ndarray, None, str]: Protein Structure Data, None, Protein Sequence Data
         """
         # chunk where the idx-th protein is located
         protein_structure = self.structure_data[idx]
@@ -74,17 +124,17 @@ class ESMDataLoader(DataLoader):
         self,
         esm2_alphabet: Alphabet,
         esm_if_alphabet: Alphabet,
-        data_dir="data/",
-        batch_size=64,
-        shuffle=True,
-        num_workers=1,
+        dataset: ESMDataset,
+        batch_size=DEFAULT_BATCH_SIZE,
+        shuffle=DEFAULT_SHUFFLE,
+        num_workers=DEFAULT_NUM_WORKERS,
     ):
         """ESM DataLoader
 
         Args:
             esm2_alphabet (Alphabet): ESM-2 Alphabet
             esm_if_alphabet (Alphabet): ESM-IF Alphabet
-            data_dir (str): Data Directory. Defaults to "data/".
+            data_dir (str): Data Directory. Defaults to DEFAULT_DATA_DIR.
             batch_size (int): Batch Size. Defaults to 64.
             shuffle (bool, optional): Shuffle Dataset. Defaults to True.
             num_workers (int, optional): Num Workers to process dataset. Defaults to 1.
@@ -98,14 +148,14 @@ class ESMDataLoader(DataLoader):
         self.esm_2_batch_converter = self.esm2_alphabet.get_batch_converter()
 
         # self.collate_fn = util.CoordBatchConverter(alphabet)
-        self.dataset = ESMDataset(data_dir=data_dir)
+        self.dataset = dataset
         super().__init__(
             dataset=self.dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=False,
+            pin_memory=DEFAULT_PIN_MEMORY,
         )
 
     def collate_fn(
@@ -138,3 +188,73 @@ class ESMDataLoader(DataLoader):
         ) = self.esm_if_batch_converter(batch)
 
         return coords, confidence, strs, tokens, padding_mask
+
+
+class ESMDataLightning(LightningDataModule):
+    def __init__(
+        self,
+        esm2_alphabet: Alphabet,
+        esm_if_alphabet: Alphabet,
+        batch_size: int,
+        **kwargs,
+    ):
+        super().__init__()
+        self.esm2_alphabet = esm2_alphabet
+        self.esm_if_alphabet = esm_if_alphabet
+
+        self.esm_if_batch_converter = util.CoordBatchConverter(
+            self.esm_if_alphabet
+        )
+        self.esm_2_batch_converter = self.esm2_alphabet.get_batch_converter()
+
+        # self.collate_fn = util.CoordBatchConverter(alphabet)
+        self.data_dir = kwargs.get("data_dir", DEFAULT_DATA_DIR)
+        self.batch_size = batch_size
+        self.split_ratio = kwargs.get("split_ratio", DEFAULT_SPLIT_RATIO)
+        self.shuffle = kwargs.get("shuffle", DEFAULT_SHUFFLE)
+        self.num_workers = kwargs.get("num_workers", DEFAULT_NUM_WORKERS)
+
+    def prepare_data(self):
+        """Load Train and Val Dataset"""
+        self.train_dataset = ESMDataset(
+            self.data_dir, split="train", split_ratio=self.split_ratio
+        )
+        self.val_dataset = ESMDataset(
+            self.data_dir, split="val", split_ratio=self.split_ratio
+        )
+
+    def setup(self, stage):
+        # if stage == "fit":
+        self.train_loader = ESMDataLoader(
+            esm2_alphabet=self.esm2_alphabet,
+            esm_if_alphabet=self.esm_if_alphabet,
+            dataset=self.train_dataset,
+            shuffle=self.shuffle,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+        )
+
+        self.val_loader = ESMDataLoader(
+            esm2_alphabet=self.esm2_alphabet,
+            esm_if_alphabet=self.esm_if_alphabet,
+            dataset=self.val_dataset,
+            shuffle=self.shuffle,
+            batch_size=self.batch_size,
+            num_workers=self.num_workers,
+        )
+        # called on every process in DDP
+
+    def train_dataloader(self):
+        return self.train_loader
+
+    def val_dataloader(self):
+        return self.val_loader
+
+    def test_dataloader(self):
+        return self.val_loader
+
+    def teardown(self):
+        # clean up after fit or test
+        # called on every process in DDP
+        self.train_loader = None
+        self.val_loader = None
