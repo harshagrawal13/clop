@@ -1,75 +1,9 @@
-import os
-import json
-from argparse import Namespace
-import numpy as np
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
+
 import lightning as pl
-from esm.inverse_folding import gvp_transformer
-from esm.model.esm2 import ESM2
-from esm import pretrained
 from data import ESMDataLoader
-
-
-class InitEsmModules:
-    def __init__(self, **kwargs):
-        """
-        Keyword Args:
-            num_esm2_layers (int): Number of ESM2 Layers to use. Defaults to 30.
-            esm2_emb_dim (int): ESM2 Final Output Embedding Dimension. Defaults to 640.
-            esm2_attention_heads (int): ESM2 Attention Heads. Defaults to 20.
-            esm2_token_droupout (bool): ESM2 Token Dropout. Defaults to True.
-            args_dir (str): Path to args.json file for ESM-IF. Defaults to args.json in current working directory.
-            gvp_node_hidden_dim_scalar (int): ESM-IF GVP Scalar Hidden Dim. Defaults to 1024.
-            gvp_node_hidden_dim_vector (int): ESM-IF GVP Vector Hidden Dim. Defaults to 256.
-            num_del_layers (int): Number of ESM-IF Layers to delete. Defaults to 6.
-        """
-
-        # ESM2 Params
-        self.num_esm2_layers = kwargs.get("num_esm2_layers", 30)
-        self.esm2_emb_dim = kwargs.get("esm2_emb_dim", 640)
-        self.esm2_attention_heads = kwargs.get("esm2_attention_heads", 20)
-        self.esm2_token_droupout = kwargs.get("esm2_token_droupout", True)
-
-        # ESM_IF Params
-        self.args_dir = kwargs.get(
-            "args_dir", os.path.join(os.getcwd(), "args.json")
-        )
-        self.gvp_node_hidden_dim_scalar = kwargs.get(
-            "gvp_node_hidden_dim_scalar", 1024
-        )
-        self.gvp_node_hidden_dim_vector = kwargs.get(
-            "gvp_node_hidden_dim_vector", 256
-        )
-        self.num_del_layers = kwargs.get("num_del_layers", 6)
-
-    def __call__(self):
-        _, alphabet_2 = pretrained.esm2_t6_8M_UR50D()
-        _, alphabet_if = pretrained.esm_if1_gvp4_t16_142M_UR50()
-
-        args_if = json.load(open(self.args_dir, "r"))
-        args_if["gvp_node_hidden_dim_scalar"] = self.gvp_node_hidden_dim_scalar
-        args_if["gvp_node_hidden_dim_vector"] = self.gvp_node_hidden_dim_vector
-        args_if = Namespace(**args_if)
-
-        esm2 = ESM2(
-            num_layers=self.num_esm2_layers,
-            embed_dim=self.esm2_emb_dim,
-            attention_heads=self.esm2_attention_heads,
-            alphabet=alphabet_2,
-            token_dropout=self.esm2_token_droupout,
-        )
-
-        esm_if = gvp_transformer.GVPTransformerModel(
-            args_if,
-            alphabet_if,
-        )
-
-        del esm_if.decoder
-        del esm_if.encoder.layers[1 : self.num_del_layers + 1]
-
-        return esm2, esm_if
+from util import load_esm_2, load_esm_if
 
 
 class JESPR(pl.LightningModule):
@@ -85,57 +19,30 @@ class JESPR(pl.LightningModule):
             esm_data_loader (ESMDataLoader): ESMDataLoader
 
         Keyword Args:
-            num_esm2_layers (int): Number of ESM2 Layers to use. Defaults to 30.
-            esm2_emb_dim (int): ESM2 Final Output Embedding Dimension. Defaults to 640.
-            esm2_attention_heads (int): ESM2 Attention Heads. Defaults to 20.
-            esm2_token_droupout (bool): ESM2 Token Dropout. Defaults to True.
-            args_dir (str): Path to args.json file for ESM-IF. Defaults to args.json in current working directory.
-            num_esm2_layers (int): Number of ESM2 Layers to use (30/33). Defaults to 30.
-            esm_if_out_size (int): ESM-IF Output Size. Defaults to 1280.
-            final_emb_size (int): Final Embedding Size. Defaults to 512.
-            gvp_node_hidden_dim_scalar (int): ESM-IF GVP Scalar Hidden Dim. Defaults to 1024.
-            gvp_node_hidden_dim_vector (int): ESM-IF GVP Vector Hidden Dim. Defaults to 256.
-            num_del_layers (int): Number of ESM-IF Layers to delete. Defaults to 6.
+            esm_2_model_type (str): ESM-2 model type - base_8M, base_650M. Defaults to base_8M.
+            esm_if_model_type (str): ESM-IF model type - base_7M, base_142M. Defaults to base_7M.
+            comb_emb_size (int): Combined Embedding Size. Defaults to 512.
         """
         super().__init__()
 
         self.esm_data_loader = esm_data_loader
-
-        self.num_esm2_layers = kwargs.get("num_esm2_layers", 30)
-        self.esm2_emb_dim = kwargs.get("esm2_emb_dim", 640)
-        self.esm2_attention_heads = kwargs.get("esm2_attention_heads", 20)
-        self.esm2_token_droupout = kwargs.get("esm2_token_droupout", True)
-
-        self.args_dir = kwargs.get(
-            "args_dir", os.path.join(os.getcwd(), "args.json")
+        self.esm2, self.esm2_alphabet = load_esm_2(
+            kwargs.get("esm_2_model_type", "base_8M")
         )
-        self.gvp_node_hidden_dim_scalar = kwargs.get(
-            "gvp_node_hidden_dim_scalar", 1024
+        self.esm_if, self.esm_if_alphabet = load_esm_if(
+            kwargs.get("esm_if_model_type", "base_7M")
         )
-        self.gvp_node_hidden_dim_vector = kwargs.get(
-            "gvp_node_hidden_dim_vector", 256
-        )
-        self.num_del_layers = kwargs.get("num_del_layers", 6)
-
-        self.esm2, self.esm_if = InitEsmModules(
-            num_esm2_layers=self.num_esm2_layers,
-            esm2_emb_dim=self.esm2_emb_dim,
-            esm2_attention_heads=self.esm2_attention_heads,
-            esm2_token_droupout=self.esm2_token_droupout,
-            args_dir=self.args_dir,
-            gvp_node_hidden_dim_scalar=self.gvp_node_hidden_dim_scalar,
-            gvp_node_hidden_dim_vector=self.gvp_node_hidden_dim_vector,
-            num_del_layers=self.num_del_layers,
-        )()
 
         # Model params
-        esm2_out_size = self.esm2_emb_dim
-        esm_if_out_size = kwargs.get("esm_if_out_size", 512)
-        final_emb_size = kwargs.get("final_emb_size", 512)
+        esm2_out_size = self.esm2.lm_head.dense.out_features
+        esm_if_out_size = self.esm_if.encoder.layers[-1].fc2.out_features
+        comb_emb_size = kwargs.get("comb_emb_size", 512)
+
+        self.num_esm2_layers = len(self.esm2.layers)
 
         # Linear projection to 512 dim
-        self.structure_emb_linear = nn.Linear(esm_if_out_size, final_emb_size)
-        self.seq_emb_linear = nn.Linear(esm2_out_size, final_emb_size)
+        self.structure_emb_linear = nn.Linear(esm_if_out_size, comb_emb_size)
+        self.seq_emb_linear = nn.Linear(esm2_out_size, comb_emb_size)
 
         # For scaling the cosing similarity score
         self.temperature = torch.tensor(1)

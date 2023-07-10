@@ -1,0 +1,28 @@
+{
+    "esm_if": {
+        "base_7M": {
+            "gvp_node_hidden_dim_scalar": 100,
+            "gvp_node_hidden_dim_vector":16,
+            "encoder_layers": 2
+        },
+        "base_142M": {
+            "gvp_node_hidden_dim_scalar": 1024,
+            "gvp_node_hidden_dim_vector":256,
+            "encoder_layers": 8
+        }
+    },
+    "esm2": {
+        "base_8M": {
+            "num_layers": 6,
+            "embed_dim": 320,
+            "attention_heads": 20,
+            "token_dropout": true
+        },
+        "base_650M": {
+            "num_layers": 33,
+            "embed_dim": 1280,
+            "attention_heads": 20,
+            "token_dropout": true
+        }
+    }
+}
