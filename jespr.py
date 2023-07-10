@@ -2,14 +2,25 @@ import torch
 import torch.nn as nn
 
 import lightning as pl
+
+from esm.inverse_folding.gvp_transformer import GVPTransformerModel
+from esm.model.esm2 import ESM2
+from esm.data import Alphabet
+
 from data import ESMDataLoader
 from util import load_esm_2, load_esm_if
+
+ESM2_PADDING_IDX = 0
+DEFAULT_COMBINED_EMB_SIZE = 512
 
 
 class JESPR(pl.LightningModule):
     def __init__(
         self,
-        esm_data_loader: ESMDataLoader,
+        esm2: ESM2,
+        esm2_alphabet: Alphabet,
+        esm_if: GVPTransformerModel,
+        esm_if_alphabet: Alphabet,
         **kwargs,
     ) -> None:
         """
@@ -25,22 +36,17 @@ class JESPR(pl.LightningModule):
         """
         super().__init__()
 
-        self.esm_data_loader = esm_data_loader
-        self.esm2, self.esm2_alphabet = load_esm_2(
-            kwargs.get("esm_2_model_type", "base_8M")
-        )
-        self.esm_if, self.esm_if_alphabet = load_esm_if(
-            kwargs.get("esm_if_model_type", "base_7M")
-        )
+        self.esm2, self.esm2_alphabet = esm2, esm2_alphabet
+        self.esm_if, self.esm_if_alphabet = esm_if, esm_if_alphabet
 
         # Model params
         esm2_out_size = self.esm2.lm_head.dense.out_features
         esm_if_out_size = self.esm_if.encoder.layers[-1].fc2.out_features
-        comb_emb_size = kwargs.get("comb_emb_size", 512)
+        comb_emb_size = kwargs.get("comb_emb_size", DEFAULT_COMBINED_EMB_SIZE)
 
         self.num_esm2_layers = len(self.esm2.layers)
 
-        # Linear projection to 512 dim
+        # Linear projection to DEFAULT_COMBINED_EMB_SIZE dim
         self.structure_emb_linear = nn.Linear(esm_if_out_size, comb_emb_size)
         self.seq_emb_linear = nn.Linear(esm2_out_size, comb_emb_size)
 
@@ -82,9 +88,7 @@ class JESPR(pl.LightningModule):
         pooled_seq_embeddings = torch.empty(B, E, device=seq_embeddings.device)
         pooled_structure_embeddings = torch.empty_like(pooled_seq_embeddings)
 
-        batch_padding_lens = (
-            tokens != self.esm_data_loader.esm_if_alphabet.padding_idx
-        ).sum(1)
+        batch_padding_lens = (tokens != ESM2_PADDING_IDX).sum(1)
 
         # Average Pooling to get a single sequence
         # and structure embedding for the entire protein
