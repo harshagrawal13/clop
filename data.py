@@ -253,7 +253,7 @@ class ESMDataLightning(LightningDataModule):
     def test_dataloader(self):
         return self.val_loader
 
-    def teardown(self):
+    def teardown(self, stage):
         # clean up after fit or test
         # called on every process in DDP
         self.train_loader = None
