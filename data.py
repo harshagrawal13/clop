@@ -11,7 +11,6 @@ from esm.inverse_folding import util
 from esm import Alphabet
 
 DEFAULT_NUM_WORKERS = 1
-DEFAULT_BATCH_SIZE = 64
 MAX_SEQ_LEN = 200
 DEFAULT_SPLIT_RATIO = 0.8
 DEFAULT_SHUFFLE = True
@@ -125,7 +124,7 @@ class ESMDataLoader(DataLoader):
         esm2_alphabet: Alphabet,
         esm_if_alphabet: Alphabet,
         dataset: ESMDataset,
-        batch_size=DEFAULT_BATCH_SIZE,
+        batch_size=int,
         shuffle=DEFAULT_SHUFFLE,
         num_workers=DEFAULT_NUM_WORKERS,
     ):
