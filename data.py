@@ -16,7 +16,7 @@ DEFAULT_SPLIT_RATIO = 0.8
 DEFAULT_SHUFFLE = True
 DEFAULT_PIN_MEMORY = False
 DEFUALT_SPLIT = "train"
-DEFAULT_DATA_DIR = "data/"
+DEFAULT_DATA_DIR = path.join(path.dirname(path.abspath(__file__)), "data/")
 
 
 class ESMDataset(Dataset):
@@ -34,20 +34,13 @@ class ESMDataset(Dataset):
             dataset_type (str): Dataset type. Defaults to "train".
             max_seq_len (int): Max Sequence Length. Defaults to 200.
         """
-        data_dir_complete = path.join(
-            path.abspath(path.join(__file__, "..")), data_dir
-        )
-        with open(
-            path.join(data_dir_complete, "all_structures.pkl"), "rb"
-        ) as f:
+        with open(path.join(data_dir, "all_structures.pkl"), "rb") as f:
             self.structure_data = pickle.load(f)
 
-        with open(path.join(data_dir_complete, "all_seqs.json"), "r") as f:
+        with open(path.join(data_dir, "all_seqs.json"), "r") as f:
             self.sequence_data = json.load(f)
 
-        with open(
-            path.join(data_dir_complete, "all_prot_names.json"), "r"
-        ) as f:
+        with open(path.join(data_dir, "all_prot_names.json"), "r") as f:
             self.prot_names = json.load(f)
         self.filter_data(max_seq_len)
 
