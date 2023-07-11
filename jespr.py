@@ -1,3 +1,4 @@
+import time
 import torch
 import torch.nn as nn
 
@@ -12,7 +13,15 @@ from util import load_esm_2, load_esm_if
 
 ESM2_PADDING_IDX = 0
 DEFAULT_COMBINED_EMB_SIZE = 512
-
+DEFAULT_BATCH_SIZE = 64
+DEFAULT_LR = 3e-4
+DEFAULT_LOG_EVERY_N_STEPS = 10
+DEFAULT_MAX_EPOCHS = 50
+DEFAULT_VAL_CHECK_ITVL = 0.25  # default validation step interval (per epoch)
+DEFAULT_ESM2_MODEL_TYPE = "base_8M"
+DEFAULT_ESM_IF_MODEL_TYPE = "base_7M"
+DEFAULT_PROJECT_NAME = "jespr"
+DEFAULT_LOGS_DIR = "logs"
 
 class JESPR(pl.LightningModule):
     def __init__(
@@ -53,6 +62,7 @@ class JESPR(pl.LightningModule):
         # For scaling the cosing similarity score
         self.temperature = torch.tensor(1)
         self.loss_fn = nn.CrossEntropyLoss()
+        self.lr = kwargs.get("lr", DEFAULT_LR)
 
     def forward(self, x) -> tuple:
         """Foward Function for JESPR
@@ -84,6 +94,9 @@ class JESPR(pl.LightningModule):
 
         # Batch Size * Residue Length * Embedding Size
         B, _, E = seq_embeddings.shape
+
+        # Set batch size for logging
+        self.batch_size = B
 
         pooled_seq_embeddings = torch.empty(B, E, device=seq_embeddings.device)
         pooled_structure_embeddings = torch.empty_like(pooled_seq_embeddings)
@@ -133,9 +146,92 @@ class JESPR(pl.LightningModule):
             return loss.mean()
 
     def training_step(self, batch, batch_idx):
-        loss, logits = self.forward(batch)
-        self.log("metrics/epoch/loss", loss)
+        start_time = time.time()
+        loss, _ = self.forward(batch)
+        self.log("metrics/step/train_loss", loss, batch_size=self.batch_size)
+        self.log("metrics/step/time_per_train_step", time.time() - start_time, batch_size=self.batch_size)
         return loss
+
+    def validation_step(self, batch, batch_idx):
+        start_time = time.time()
+        loss, _ = self.forward(batch)
+        self.log("metrics/step/val_loss", loss, batch_size=self.batch_size)
+        self.log("metrics/step/time_per_val_step", time.time() - start_time, batch_size=self.batch_size)
 
     def configure_optimizers(self):
         return torch.optim.Adam(self.parameters(), lr=0.02)
+
+
+def train_jespr(**kwargs):
+    """
+    Train Function for JESPR
+
+    Kwargs:
+        batch_size (int): Batch Size. Defaults to DEFAULT_BATCH_SIZE.
+        esm2_model_type (str): ESM2 Model Type. Defaults to DEFAULT_ESM2_MODEL_TYPE.
+        esm_if_model_type (str): ESM-IF Model Type. Defaults to DEFAULT_ESM_IF_MODEL_TYPE.
+        project_name (str): Project Name for Weights & Biases. Defaults to DEFAULT_PROJECT_NAME.
+        run_name (str): Run Name for Weights & Biases. Defaults to None.
+        lr (float): Learning Rate. Defaults to DEFAULT_LR.
+        log_every_n_steps (int): Log every n steps. Defaults to DEFAULT_LOG_EVERY_N_STEPS.
+        epochs (int): Number of epochs. Defaults to DEFAULT_MAX_EPOCHS.
+    """
+    from lightning.pytorch import Trainer
+    from pytorch_lightning.loggers import WandbLogger
+    from data import ESMDataLightning
+    import wandb
+
+    # obtain all kwargs
+    batch_size = kwargs.get("batch_size", DEFAULT_BATCH_SIZE)
+    esm2_model_type = kwargs.get("esm2_model_type", DEFAULT_ESM2_MODEL_TYPE)
+    esm_if_model_type = kwargs.get("esm_if_model_type", DEFAULT_ESM_IF_MODEL_TYPE)
+    project_name = kwargs.get("project_name", DEFAULT_PROJECT_NAME)
+    run_name = kwargs.get("run_name", None)
+    lr = kwargs.get("lr", DEFAULT_LR)
+    log_every_n_steps = kwargs.get("log_every_n_steps", DEFAULT_LOG_EVERY_N_STEPS)
+    epochs = kwargs.get("epochs", DEFAULT_MAX_EPOCHS)
+    val_check_interval = kwargs.get("val_check_interval", DEFAULT_VAL_CHECK_ITVL)
+
+    # Load ESM Models
+    print("Initializing JESPR...")
+    esm2, alphabet_2 = load_esm_2(esm2_model_type)
+    esm_if, alphabet_if = load_esm_if(esm_if_model_type)
+ 
+    jespr = JESPR(
+        esm2=esm2,
+        esm_if=esm_if,
+        esm2_alphabet=alphabet_2,
+        esm_if_alphabet=alphabet_if,
+        lr=lr
+    )
+
+    print("Loading DataModule...")
+    esm_data_lightning = ESMDataLightning(
+        esm2_alphabet=alphabet_2,
+        esm_if_alphabet=alphabet_if,
+        batch_size=batch_size
+    )
+
+    wandb_logger = WandbLogger(project=project_name, name=run_name, save_dir=DEFAULT_LOGS_DIR)
+
+    # add all hyperparams to confid
+    wandb_logger.experiment.config["batch_size"] = batch_size
+    wandb_logger.experiment.config["learning_rate"] = lr
+    wandb_logger.experiment.config["esm2_model_type"] = esm2_model_type
+    wandb_logger.experiment.config["esm_if_model_type"] = esm_if_model_type
+    wandb_logger.experiment.config["log_every_n_steps"] = log_every_n_steps
+    wandb_logger.experiment.config["val_check_interval"] = val_check_interval
+    wandb_logger.experiment.config["epochs"] = epochs
+
+    trainer = Trainer(
+        accelerator="auto", 
+        log_every_n_steps=log_every_n_steps,
+        val_check_interval=val_check_interval, 
+        logger=wandb_logger,
+        max_epochs=epochs
+    )
+
+    print("Starting Training...")
+    trainer.fit(jespr, datamodule=esm_data_lightning)
+    print("Training Complete!")
+    wandb.finish()
