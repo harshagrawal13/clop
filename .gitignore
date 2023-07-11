@@ -15,4 +15,5 @@ troubleshoot.ipynb
 
 # custom
 data/
+logs/
 lightning_logs/
