@@ -1,5 +1,6 @@
 from os import path
 import time
+import numpy as np
 import torch
 import torch.nn as nn
 
@@ -23,6 +24,8 @@ DEFAULT_ESM2_MODEL_TYPE = "base_8M"
 DEFAULT_ESM_IF_MODEL_TYPE = "base_7M"
 DEFAULT_PROJECT_NAME = "jespr"
 DEFAULT_LOGS_DIR = path.join(path.dirname(path.abspath(__file__)), "logs/")
+DEFAULT_EMB_NORMALIZATION = False
+INIT_TEMP = np.log(1 / 0.07)
 
 
 class JESPR(pl.LightningModule):
@@ -62,9 +65,10 @@ class JESPR(pl.LightningModule):
         self.seq_emb_linear = nn.Linear(esm2_out_size, comb_emb_size)
 
         # For scaling the cosing similarity score
-        self.temperature = torch.tensor(1)
-        self.loss_fn = nn.CrossEntropyLoss()
+        self.temperature = nn.Parameter(torch.tensor(INIT_TEMP))
+
         self.lr = kwargs.get("lr", DEFAULT_LR)
+        self.norm_emb = kwargs.get("norm_emb", DEFAULT_EMB_NORMALIZATION)
 
     def forward(self, x) -> tuple:
         """Foward Function for JESPR
@@ -117,35 +121,53 @@ class JESPR(pl.LightningModule):
                 i, 1 : tokens_len - 1
             ].mean(0)
 
-        # Normalize the embeddings
-        # Taken from https://github.com/openai/CLIP/blob/a9b1bf5920416aaeaec965c25dd9e8f98c864f16/clip/model.py#L362
-        pooled_seq_embeddings = (
-            pooled_seq_embeddings
-            / pooled_seq_embeddings.norm(dim=1, keepdim=True)
-        )
-
-        pooled_structure_embeddings = (
-            pooled_structure_embeddings
-            / pooled_structure_embeddings.norm(dim=1, keepdim=True)
-        )
+        if self.norm_emb:
+            # Normalize the embeddings
+            pooled_seq_embeddings = self.normalize_embeddings(
+                pooled_seq_embeddings
+            )
+            pooled_structure_embeddings = self.normalize_embeddings(
+                pooled_structure_embeddings
+            )
 
         # Calculating the Loss
         # text = seq, image = structure
-        logits = (
-            pooled_seq_embeddings @ pooled_structure_embeddings.T
-        ) / self.temperature
+        logits_per_structure = (
+            self.temperature
+            * pooled_structure_embeddings
+            @ pooled_seq_embeddings.T
+        )
+        logits_per_seq = (
+            self.temperature
+            * pooled_seq_embeddings
+            @ pooled_structure_embeddings.T
+        )
 
-        loss = self.loss_fn(logits, torch.arange(B, device=logits.device))
-        return loss, logits
+        labels = torch.arange(
+            B, dtype=torch.long, device=logits_per_structure.device
+        )
 
-    @staticmethod
-    def cross_entropy(preds, targets, reduction="none"):
-        log_softmax = nn.LogSoftmax(dim=-1)
-        loss = (-targets * log_softmax(preds)).sum(1)
-        if reduction == "none":
-            return loss
-        elif reduction == "mean":
-            return loss.mean()
+        loss = (
+            torch.nn.functional.cross_entropy(logits_per_structure, labels)
+            + torch.nn.functional.cross_entropy(logits_per_seq, labels)
+        ) / 2
+
+        return loss, {
+            "logits_per_structure": logits_per_structure,
+            "logits_per_seq": logits_per_seq,
+        }
+
+    def normalize_embeddings(self, embeddings: torch.tensor) -> torch.tensor:
+        """Normalize Embeddings
+         Taken from https://github.com/openai/CLIP/blob/a9b1bf5920416aaeaec965c25dd9e8f98c864f16/clip/model.py#L362
+
+        Args:
+            embeddings (torch.tensor): Embedding. (B, E)
+
+        Returns:
+            torch.tensor: Normalized Embeddings. (B, E)
+        """
+        return embeddings / embeddings.norm(dim=1, keepdim=True)
 
     def training_step(self, batch, batch_idx):
         start_time = time.time()
