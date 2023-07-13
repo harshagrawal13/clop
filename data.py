@@ -120,6 +120,7 @@ class ESMDataLoader(DataLoader):
         batch_size=int,
         shuffle=DEFAULT_SHUFFLE,
         num_workers=DEFAULT_NUM_WORKERS,
+        **kwargs
     ):
         """ESM DataLoader
 
