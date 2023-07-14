@@ -24,7 +24,7 @@ DEFAULT_ESM2_MODEL_TYPE = "base_8M"
 DEFAULT_ESM_IF_MODEL_TYPE = "base_7M"
 DEFAULT_PROJECT_NAME = "jespr"
 DEFAULT_LOGS_DIR = path.join(path.dirname(path.abspath(__file__)), "logs/")
-DEFAULT_EMB_NORMALIZATION = False
+DEFAULT_EMB_NORMALIZATION = True
 INIT_TEMP = np.log(1 / 0.07)
 
 
@@ -63,7 +63,9 @@ class JESPR(pl.LightningModule):
         # Linear projection to DEFAULT_COMBINED_EMB_SIZE dim
         self.structure_emb_linear = nn.Linear(esm_if_out_size, comb_emb_size)
         self.seq_emb_linear = nn.Linear(esm2_out_size, comb_emb_size)
-
+        self.seq_layer_norm = nn.LayerNorm(comb_emb_size)
+        self.str_layer_norm = nn.LayerNorm(comb_emb_size)
+        
         # For scaling the cosing similarity score
         self.temperature = nn.Parameter(torch.tensor(INIT_TEMP))
 
@@ -97,6 +99,10 @@ class JESPR(pl.LightningModule):
 
         seq_embeddings = self.seq_emb_linear(esm2_logits)
         structure_embeddings = self.structure_emb_linear(esm_if_logits)
+
+        # Layer Norm
+        seq_embeddings = self.seq_layer_norm(seq_embeddings)
+        structure_embeddings = self.str_layer_norm(structure_embeddings)
 
         # Batch Size * Residue Length * Embedding Size
         B, _, E = seq_embeddings.shape
