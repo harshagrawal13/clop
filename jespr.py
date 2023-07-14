@@ -25,7 +25,7 @@ DEFAULT_ESM_IF_MODEL_TYPE = "base_7M"
 DEFAULT_PROJECT_NAME = "jespr"
 DEFAULT_LOGS_DIR = path.join(path.dirname(path.abspath(__file__)), "logs/")
 DEFAULT_EMB_NORMALIZATION = True
-INIT_TEMP = np.log(1 / 0.07)
+INIT_TEMP = 0.07
 
 
 class JESPR(pl.LightningModule):
