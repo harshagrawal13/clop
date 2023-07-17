@@ -130,3 +130,26 @@ def load_esm_if(
     del esm_if.decoder
 
     return esm_if, alphabet
+
+# TODO: revisit this.
+def visualize_logits(self, layers: list) -> None:
+    """Visualize Logits
+
+    Args:
+        layers (list): List of tuples of name and tensor containing logits
+            eg: [("esm2_outs", esm2_outs), ("esm_if_outs", esm_if_outs)]
+    """
+    import matplotlib.pyplot as plt
+    import torch
+    # visualize histograms
+    plt.figure(figsize=(20, 4)) # width and height of the plot
+    legends = []
+    for i, layer in enumerate(layers): # note: exclude the output layer
+    #   if isinstance(layer, Tanh):
+        t = layer[1]
+        print('layer {%d (%10s)}: mean %+.2f, std %.2f' % (i, layer[0], t.mean(), t.std()))
+        hy, hx = torch.histogram(t, density=True)
+        plt.plot(hx[:-1].detach(), hy.detach())
+        legends.append(f'layer {i} ({layer[0]}')
+    plt.legend(legends);
+    plt.title('activation distribution')
