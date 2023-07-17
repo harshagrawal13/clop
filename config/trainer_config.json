@@ -1,0 +1,57 @@
+{
+    "jespr": {
+        "esm2": {
+            "num_layers": 6,
+            "embed_dim": 320,
+            "attention_heads": 20,
+            "token_dropout": true
+        },
+        "esm_if": {
+            "gvp_node_hidden_dim_scalar": 100,
+            "gvp_node_hidden_dim_vector":16,
+            "encoder_layers": 2
+        },
+        "comb_emb_size": 512,
+        "norm_emb": true
+    },
+    "data": {
+        "dataset_split_ratio": 0.8,
+        "max_seq_len": 200,
+        "data_dir": "/rds/general/user/ha1822/home/code/atom51/jespr/data",
+        "train_shuffle": true,
+        "val_shuffle": false,
+        "pin_to_memory": false,
+        "num_workers": 1
+    },
+    "trainer": {
+        "accelerator": "gpu",
+        "precision": 32,
+        "devices": 1,
+        "batch_size": 4,
+        "epochs": 10,
+        "log_every_n_steps": 50,
+        "enable_progress_bar": 1,
+        "val_check_interval": 0.5,
+        "limit_train_batches": 1,
+        "accumulate_grad_batches": 1,
+        "stochastic_weight_averaging": false,
+        "stochastic_weight_averaging_lr": 1e-2,
+        "detect_anomaly": true,
+        "grad_clip_val": 1.5,
+        "grad_clip_algorithm": "norm"
+    },
+    "optim": {
+        "lr": 1e-4,
+        "weight_decay": 0.01,
+        "betas": [
+            0.9,
+            0.999
+        ],
+        "eps": 1e-8
+    },
+    "meta": {
+        "project_name": "jespr_config_new",
+        "run_name": null,
+        "logs_dir": "/rds/general/user/ha1822/home/code/atom51/jespr/logs"
+    }
+}
