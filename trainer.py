@@ -88,9 +88,6 @@ def main(args):
         project=project_name, name=run_name, save_dir=logs_dir
     )
 
-    # Add all config params
-    wandb_logger.experiment.config.update(args)
-
     callbacks = []
     if stochastic_weight_averaging:
         callbacks.append(StochasticWeightAveraging(swa_lrs=stochastic_weight_averaging_lr))
@@ -112,6 +109,11 @@ def main(args):
         gradient_clip_val=grad_clip_val,
         gradient_clip_algorithm=grad_clip_algorithm,
     )
+
+    # Wandb object only available to rank 0
+    if trainer.global_rank == 0:
+        # Add all config params
+        wandb_logger.experiment.config.update(args)
 
     print("Starting Training...")
     trainer.fit(
