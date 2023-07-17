@@ -13,7 +13,8 @@ from esm import Alphabet
 DEFAULT_NUM_WORKERS = 1
 MAX_SEQ_LEN = 200
 DEFAULT_SPLIT_RATIO = 0.8
-DEFAULT_SHUFFLE = True
+DEFAULT_TRAIN_SHUFFLE = True
+DEFAULT_VAL_SHUFFLE = False
 DEFAULT_PIN_MEMORY = False
 DEFUALT_SPLIT = "train"
 DEFAULT_DATA_DIR = path.join(path.dirname(path.abspath(__file__)), "data/")
@@ -117,8 +118,8 @@ class ESMDataLoader(DataLoader):
         esm2_alphabet: Alphabet,
         esm_if_alphabet: Alphabet,
         dataset: ESMDataset,
-        batch_size=int,
-        shuffle=DEFAULT_SHUFFLE,
+        batch_size: int,
+        shuffle: int,
         num_workers=DEFAULT_NUM_WORKERS,
         **kwargs
     ):
@@ -148,7 +149,7 @@ class ESMDataLoader(DataLoader):
             shuffle=shuffle,
             num_workers=num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=DEFAULT_PIN_MEMORY,
+            pin_memory=kwargs.get("pin_memory", DEFAULT_PIN_MEMORY),
         )
 
     def collate_fn(
@@ -200,24 +201,25 @@ class ESMDataLightning(LightningDataModule):
         )
         self.esm_2_batch_converter = self.esm2_alphabet.get_batch_converter()
 
-        # self.collate_fn = util.CoordBatchConverter(alphabet)
-        self.data_dir = kwargs.get("data_dir", DEFAULT_DATA_DIR)
         self.batch_size = batch_size
+        self.data_dir = kwargs.get("data_dir", DEFAULT_DATA_DIR)
+        self.max_seq_len = kwargs.get("max_seq_len")
         self.split_ratio = kwargs.get("split_ratio", DEFAULT_SPLIT_RATIO)
-        self.shuffle = kwargs.get("shuffle", DEFAULT_SHUFFLE)
+        self.train_shuffle = kwargs.get("train_shuffle", DEFAULT_TRAIN_SHUFFLE)
+        self.val_shuffle = kwargs.get("val_shuffle", DEFAULT_VAL_SHUFFLE)
         self.num_workers = kwargs.get("num_workers", DEFAULT_NUM_WORKERS)
+        self.pin_memory = kwargs.get("pin_memory", DEFAULT_PIN_MEMORY)
 
     def prepare_data(self):
         """Load Train and Val Dataset"""
         self.train_dataset = ESMDataset(
-            self.data_dir, split="train", split_ratio=self.split_ratio
+            self.data_dir, split="train", split_ratio=self.split_ratio, max_seq_len=self.max_seq_len
         )
         self.val_dataset = ESMDataset(
-            self.data_dir, split="val", split_ratio=self.split_ratio
+            self.data_dir, split="val", split_ratio=self.split_ratio, max_seq_len=self.max_seq_len
         )
 
     def setup(self, stage):
-        # if stage == "fit":
         self.train_loader = ESMDataLoader(
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
@@ -225,6 +227,7 @@ class ESMDataLightning(LightningDataModule):
             shuffle=self.shuffle,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
+            pin_memory=self.pin_memory
         )
 
         self.val_loader = ESMDataLoader(
@@ -235,7 +238,6 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.batch_size,
             num_workers=self.num_workers,
         )
-        # called on every process in DDP
 
     def train_dataloader(self):
         return self.train_loader
