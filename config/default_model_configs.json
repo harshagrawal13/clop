@@ -18,6 +18,12 @@
             "attention_heads": 20,
             "token_dropout": true
         },
+        "base_150M": {
+            "num_layers": 30,
+            "embed_dim": 640,
+            "attention_heads": 20,
+            "token_dropout": true
+        },
         "base_650M": {
             "num_layers": 33,
             "embed_dim": 1280,
