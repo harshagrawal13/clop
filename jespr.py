@@ -41,12 +41,15 @@ class JESPR(pl.LightningModule):
         JESPR Model
 
         Args:
-            esm_data_loader (ESMDataLoader): ESMDataLoader
+            esm2 (ESM2): ESM-2 Model
+            esm2_alphabet (Alphabet): ESM-2 Alphabet
+            esm_if (GVPTransformerModel): ESM-IF Model
+            esm_if_alphabet (Alphabet): ESM-IF Alphabet
 
         Keyword Args:
-            esm_2_model_type (str): ESM-2 model type - base_8M, base_650M. Defaults to base_8M.
-            esm_if_model_type (str): ESM-IF model type - base_7M, base_142M. Defaults to base_7M.
-            comb_emb_size (int): Combined Embedding Size. Defaults to 512.
+            comb_emb_size (int): Combined Embedding Size. Defaults to DEFAULT_COMBINED_EMB_SIZE.
+            norm_emb (bool): Normalize Embeddings. Defaults to DEFAULT_EMB_NORMALIZATION.
+            optim_args (dict): Optimizer Arguments. Defaults to {"lr": DEFAULT_LR}.
         """
         super().__init__()
 
@@ -69,7 +72,7 @@ class JESPR(pl.LightningModule):
         # For scaling the cosing similarity score
         self.temperature = nn.Parameter(torch.tensor(INIT_TEMP))
 
-        self.lr = kwargs.get("lr", DEFAULT_LR)
+        self.optim_args = kwargs.get("optim_args", {"lr": DEFAULT_LR})
         self.norm_emb = kwargs.get("norm_emb", DEFAULT_EMB_NORMALIZATION)
 
     def forward(self, x) -> tuple:
@@ -196,8 +199,15 @@ class JESPR(pl.LightningModule):
             batch_size=self.batch_size,
         )
 
-    def configure_optimizers(self):
-        return torch.optim.Adam(self.parameters(), lr=0.02)
+    def configure_optimizers(self) -> torch.optim.Adam:
+        """Return Optimizer
+
+        Returns:
+            torch.optim.Adam: Adam Optimizer
+        """
+        return torch.optim.Adam(
+            self.parameters(), **self.optim_args
+        )
 
 
 def train_jespr(**kwargs):
