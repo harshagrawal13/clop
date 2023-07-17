@@ -46,52 +46,69 @@ def generate_esm_if_args():
         json.dump(model_args, f, indent=4)
 
 
-def load_esm_2(model_type="base_8M") -> Tuple[ESM2, Alphabet]:
+def load_esm_2(model_config="base_8M") -> Tuple[ESM2, Alphabet]:
     """Load ESM2 model using saved args
 
     Args:
-        model_type (str): Model Type - base_8M/base_650M. Defaults to "base_8M".
+        model_config (str | json): Model Type - base_8M/base_650M. Defaults to "base_8M".
 
     Returns:
         Tuple[ESM2, Alphabet]: ESM2 model and Alphabet
     """
     # Load ESM-2 Base model args, alphabet args, and the given model config
-    with open(path.join(SAVE_DIR, "default_model_configs.json"), "r") as f:
-        model_config = json.load(f)["esm2"]
-        assert (
-            model_type in model_config.keys()
-        ), f"Model Type {model_type} not found in default_model_configs.json"
-        model_config = model_config[model_type]
 
+    # If model_config is a string, load the default model config
+    if isinstance(model_config, str):
+        with open(path.join(SAVE_DIR, "default_model_configs.json"), "r") as f:
+            esm2_config = json.load(f)["esm2"]
+            assert (
+                model_config in esm2_config.keys()
+            ), f"Model Type {model_config} not found in default_model_configs.json"
+            esm2_config = esm2_config[model_config]
+
+    elif isinstance(model_config, dict):
+        esm2_config = model_config
+    
+    else:
+        raise ValueError(
+            f"model_config must be a string or dict, not {type(model_config)}"
+        )
+    
     with open(path.join(SAVE_DIR, "default_alphabet_args.json"), "r") as f:
         alphabet_args = json.load(f)["esm2"]
 
     alphabet = Alphabet(**alphabet_args)
-    model_config["alphabet"] = alphabet
-    esm2 = ESM2(**model_config)
+    esm2_config["alphabet"] = alphabet
+    esm2 = ESM2(**esm2_config)
 
     return esm2, alphabet
 
 
 def load_esm_if(
-    model_type="base_7M",
+    model_config="base_7M",
 ) -> Tuple[GVPTransformerModel, Alphabet]:
     """Load ESM-IF model using saved args
 
     Args:
-        model_type (str): Model Type - base_7M/base_142M. Defaults to "base_7M".
+        model_config (str | json): Model Type - base_7M/base_142M. Defaults to "base_7M".
 
     Returns:
         Tuple[GVPTransformerModel, Alphabet]: ESM-IF model and Alphabet
     """
     # Load ESM-IF Base model args, alphabet args, and the given model config
-    with open(path.join(SAVE_DIR, "default_model_configs.json"), "r") as f:
-        model_config = json.load(f)["esm_if"]
-        assert (
-            model_type in model_config.keys()
-        ), f"Model Type {model_type} not found in default_model_configs.json"
-        model_config = model_config[model_type]
+    if isinstance(model_config, str):
+        with open(path.join(SAVE_DIR, "default_model_configs.json"), "r") as f:
+            all_configs = json.load(f)["esm_if"]
+            assert (
+                model_config in all_configs.keys()
+            ), f"Model Type {model_config} not found in default_model_configs.json"
+            model_config = all_configs[model_config]
 
+    elif not isinstance(model_config, dict):
+        raise ValueError(
+            f"model_config must be a string or dict, not {type(model_config)}"
+        )
+    
     with open(path.join(SAVE_DIR, "default_alphabet_args.json"), "r") as f:
         alphabet_args = json.load(f)["esm_if"]
 
