@@ -211,6 +211,9 @@ class ESMDataLightning(LightningDataModule):
         self.pin_memory = kwargs.get("pin_memory", DEFAULT_PIN_MEMORY)
 
     def prepare_data(self):
+        pass
+
+    def setup(self, stage):
         """Load Train and Val Dataset"""
         self.train_dataset = ESMDataset(
             self.data_dir, split="train", split_ratio=self.split_ratio, max_seq_len=self.max_seq_len
@@ -219,7 +222,6 @@ class ESMDataLightning(LightningDataModule):
             self.data_dir, split="val", split_ratio=self.split_ratio, max_seq_len=self.max_seq_len
         )
 
-    def setup(self, stage):
         self.train_loader = ESMDataLoader(
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
