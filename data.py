@@ -224,7 +224,7 @@ class ESMDataLightning(LightningDataModule):
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
             dataset=self.train_dataset,
-            shuffle=self.shuffle,
+            shuffle=self.train_shuffle,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
             pin_memory=self.pin_memory
@@ -234,7 +234,7 @@ class ESMDataLightning(LightningDataModule):
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
             dataset=self.val_dataset,
-            shuffle=False,
+            shuffle=self.val_shuffle,
             batch_size=self.batch_size,
             num_workers=self.num_workers,
         )

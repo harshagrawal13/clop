@@ -108,7 +108,6 @@ def main(args):
         limit_train_batches=limit_train_batches,
         accumulate_grad_batches=accumulate_grad_batches,
         callbacks=callbacks,
-        limit_train_batches=limit_train_batches,
         enable_progress_bar=enable_progress_bar,
         gradient_clip_val=grad_clip_val,
         gradient_clip_algorithm=grad_clip_algorithm,
