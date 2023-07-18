@@ -65,6 +65,7 @@ def main(args):
         esm_if_alphabet=alphabet_if,
         lr=lr,
         norm_emb=norm_emb,
+        comb_emb_size=comb_emb_size,
         optim_args=optim_args,
     )
 
@@ -73,7 +74,6 @@ def main(args):
         esm2_alphabet=alphabet_2,
         esm_if_alphabet=alphabet_if,
         batch_size=batch_size,
-        comb_emb_size=comb_emb_size,
         data_dir=data_dir,
         split_ratio=data_split_ratio,
         max_seq_len=max_seq_len,
