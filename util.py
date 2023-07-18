@@ -2,7 +2,7 @@ from os import path
 import json
 from esm import pretrained
 from argparse import Namespace
-from typing import Tuple
+from typing import Tuple, Union
 
 from esm.inverse_folding.gvp_transformer import GVPTransformerModel
 from esm.model.esm2 import ESM2
@@ -68,18 +68,18 @@ def load_esm_2(model_config="base_8M") -> Tuple[ESM2, Alphabet]:
 
     elif isinstance(model_config, dict):
         esm2_config = model_config
-    
+
     else:
         raise ValueError(
             f"model_config must be a string or dict, not {type(model_config)}"
         )
-    
+
     with open(path.join(SAVE_DIR, "default_alphabet_args.json"), "r") as f:
         alphabet_args = json.load(f)["esm2"]
 
     alphabet = Alphabet(**alphabet_args)
     esm2_config["alphabet"] = alphabet
-    esm2 = ESM2(**esm2_config)
+    esm2 = ESM2Mod(**esm2_config)
 
     return esm2, alphabet
 
@@ -108,7 +108,7 @@ def load_esm_if(
         raise ValueError(
             f"model_config must be a string or dict, not {type(model_config)}"
         )
-    
+
     with open(path.join(SAVE_DIR, "default_alphabet_args.json"), "r") as f:
         alphabet_args = json.load(f)["esm_if"]
 
@@ -131,6 +131,7 @@ def load_esm_if(
 
     return esm_if, alphabet
 
+
 # TODO: revisit this.
 def visualize_logits(self, layers: list) -> None:
     """Visualize Logits
@@ -141,15 +142,101 @@ def visualize_logits(self, layers: list) -> None:
     """
     import matplotlib.pyplot as plt
     import torch
+
     # visualize histograms
-    plt.figure(figsize=(20, 4)) # width and height of the plot
+    plt.figure(figsize=(20, 4))  # width and height of the plot
     legends = []
-    for i, layer in enumerate(layers): # note: exclude the output layer
-    #   if isinstance(layer, Tanh):
+    for i, layer in enumerate(layers):  # note: exclude the output layer
+        #   if isinstance(layer, Tanh):
         t = layer[1]
-        print('layer {%d (%10s)}: mean %+.2f, std %.2f' % (i, layer[0], t.mean(), t.std()))
+        print(
+            "layer {%d (%10s)}: mean %+.2f, std %.2f"
+            % (i, layer[0], t.mean(), t.std())
+        )
         hy, hx = torch.histogram(t, density=True)
         plt.plot(hx[:-1].detach(), hy.detach())
-        legends.append(f'layer {i} ({layer[0]}')
-    plt.legend(legends);
-    plt.title('activation distribution')
+        legends.append(f"layer {i} ({layer[0]}")
+    plt.legend(legends)
+    plt.title("activation distribution")
+
+
+class ESM2Mod(ESM2):
+    """Modified ESM2 Class to remove the LM and Contact Head
+
+    Args:
+        ESM2 (ESM2): Inherits the base ESM2 Class
+    """
+
+    def __init__(
+        self,
+        num_layers: int = 33,
+        embed_dim: int = 1280,
+        attention_heads: int = 20,
+        alphabet: Union[Alphabet, str] = "ESM-1b",
+        token_dropout: bool = True,
+    ):
+        super().__init__(
+            num_layers, embed_dim, attention_heads, alphabet, token_dropout
+        )
+
+        # Remove layers not used in loss calculation
+        del self.lm_head
+        del self.contact_head
+
+    def forward(
+        self,
+        tokens,
+        repr_layers=[],
+        need_head_weights=False,
+        return_contacts=False,
+    ):
+        assert tokens.ndim == 2
+        padding_mask = tokens.eq(self.padding_idx)  # B, T
+
+        x = self.embed_scale * self.embed_tokens(tokens)
+
+        if self.token_dropout:
+            x.masked_fill_((tokens == self.mask_idx).unsqueeze(-1), 0.0)
+            # x: B x T x C
+            mask_ratio_train = 0.15 * 0.8
+            src_lengths = (~padding_mask).sum(-1)
+            mask_ratio_observed = (tokens == self.mask_idx).sum(-1).to(
+                x.dtype
+            ) / src_lengths
+            x = (
+                x
+                * (1 - mask_ratio_train)
+                / (1 - mask_ratio_observed)[:, None, None]
+            )
+
+        if padding_mask is not None:
+            x = x * (1 - padding_mask.unsqueeze(-1).type_as(x))
+
+        repr_layers = set(repr_layers)
+        hidden_representations = {}
+        if 0 in repr_layers:
+            hidden_representations[0] = x
+
+        # (B, T, E) => (T, B, E)
+        x = x.transpose(0, 1)
+
+        if not padding_mask.any():
+            padding_mask = None
+
+        for layer_idx, layer in enumerate(self.layers):
+            x, attn = layer(
+                x,
+                self_attn_padding_mask=padding_mask,
+                need_head_weights=need_head_weights,
+            )
+            if (layer_idx + 1) in repr_layers:
+                hidden_representations[layer_idx + 1] = x.transpose(0, 1)
+
+        x = self.emb_layer_norm_after(x)
+        x = x.transpose(0, 1)  # (T, B, E) => (B, T, E)
+
+        # last hidden representation should have layer norm applied
+        if (layer_idx + 1) in repr_layers:
+            hidden_representations[layer_idx + 1] = x
+
+        return hidden_representations
