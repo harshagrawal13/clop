@@ -57,7 +57,7 @@ class JESPR(pl.LightningModule):
         self.esm_if, self.esm_if_alphabet = esm_if, esm_if_alphabet
 
         # Model params
-        esm2_out_size = self.esm2.lm_head.dense.out_features
+        esm2_out_size = self.esm2.layers[-1].fc2.out_features
         esm_if_out_size = self.esm_if.layers[-1].fc2.out_features
         comb_emb_size = kwargs.get("comb_emb_size", DEFAULT_COMBINED_EMB_SIZE)
 
