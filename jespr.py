@@ -90,7 +90,7 @@ class JESPR(pl.LightningModule):
         # ESM2 - Sequence Embeddings
         esm2_logits = self.esm2(
             tokens, repr_layers=[self.num_esm2_layers], return_contacts=False
-        )["representations"][self.num_esm2_layers]
+        )[self.num_esm2_layers]
 
         # ESM-IF - Structure Embeddings
         esm_if_logits = self.esm_if.forward(
