@@ -178,16 +178,41 @@ class JESPR(pl.LightningModule):
         """
         return embeddings / embeddings.norm(dim=1, keepdim=True)
 
+    @torch.no_grad()
+    def calc_argmax_acc(self, logits: dict) -> float:
+        """Calculate Argmax Accuracy
+
+        Args:
+            logits (dict): Dict of logits for structure and sequence
+
+        Returns:
+            float: Argmax Accuracy
+        """
+        am_logits_per_structure = logits["logits_per_structure"].argmax(0)
+        am_logits_per_seq = logits["logits_per_seq"].argmax(0)
+
+        b = am_logits_per_structure.shape[0]  # Batch Size
+        truths = torch.arange(b, device=am_logits_per_structure.device)
+        acc_str = torch.sum(am_logits_per_structure == truths).item()/b
+        acc_seq = torch.sum(am_logits_per_seq == truths).item()/b
+
+        return {"acc_str": acc_str, "acc_seq": acc_seq}
+
     def training_step(self, batch, batch_idx):
         start_time = time.time()
-        loss, _ = self.forward(batch)
+        loss, logits = self.forward(batch)
         self.log("metrics/step/train_loss", loss, batch_size=self.batch_size)
         self.log(
             "metrics/step/time_per_train_step",
             time.time() - start_time,
             batch_size=self.batch_size,
         )
-        return loss
+        return {"loss": loss, "logits": logits}
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        argmax_acc = self.calc_argmax_acc(outputs["logits"])
+        self.log("metrics/step/argmax_acc_structure", argmax_acc["acc_str"])
+        self.log("metrics/step/argmax_acc_sequence", argmax_acc["acc_seq"])
 
     def validation_step(self, batch, batch_idx):
         start_time = time.time()
