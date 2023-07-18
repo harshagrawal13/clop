@@ -126,9 +126,7 @@ def load_esm_if(
         alphabet,
     )
 
-    # delete decoder TODO: do this from args
-    del esm_if.decoder
-
+    esm_if = esm_if.encoder
     return esm_if, alphabet
 
 

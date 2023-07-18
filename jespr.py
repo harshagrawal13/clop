@@ -58,7 +58,7 @@ class JESPR(pl.LightningModule):
 
         # Model params
         esm2_out_size = self.esm2.lm_head.dense.out_features
-        esm_if_out_size = self.esm_if.encoder.layers[-1].fc2.out_features
+        esm_if_out_size = self.esm_if.layers[-1].fc2.out_features
         comb_emb_size = kwargs.get("comb_emb_size", DEFAULT_COMBINED_EMB_SIZE)
 
         self.num_esm2_layers = len(self.esm2.layers)
@@ -68,7 +68,7 @@ class JESPR(pl.LightningModule):
         self.seq_emb_linear = nn.Linear(esm2_out_size, comb_emb_size)
         self.seq_layer_norm = nn.LayerNorm(comb_emb_size)
         self.str_layer_norm = nn.LayerNorm(comb_emb_size)
-        
+
         # For scaling the cosing similarity score
         self.temperature = nn.Parameter(torch.tensor(INIT_TEMP))
 
@@ -93,7 +93,7 @@ class JESPR(pl.LightningModule):
         )["representations"][self.num_esm2_layers]
 
         # ESM-IF - Structure Embeddings
-        esm_if_logits = self.esm_if.encoder.forward(
+        esm_if_logits = self.esm_if.forward(
             coords=coords,
             encoder_padding_mask=padding_mask,
             confidence=confidence,
@@ -193,8 +193,8 @@ class JESPR(pl.LightningModule):
 
         b = am_logits_per_structure.shape[0]  # Batch Size
         truths = torch.arange(b, device=am_logits_per_structure.device)
-        acc_str = torch.sum(am_logits_per_structure == truths).item()/b
-        acc_seq = torch.sum(am_logits_per_seq == truths).item()/b
+        acc_str = torch.sum(am_logits_per_structure == truths).item() / b
+        acc_seq = torch.sum(am_logits_per_seq == truths).item() / b
 
         return {"acc_str": acc_str, "acc_seq": acc_seq}
 
@@ -230,9 +230,7 @@ class JESPR(pl.LightningModule):
         Returns:
             torch.optim.Adam: Adam Optimizer
         """
-        return torch.optim.Adam(
-            self.parameters(), **self.optim_args
-        )
+        return torch.optim.Adam(self.parameters(), **self.optim_args)
 
 
 def train_jespr(**kwargs):
