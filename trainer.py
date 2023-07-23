@@ -2,45 +2,55 @@ from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import StochasticWeightAveraging
 from lightning.pytorch.loggers import WandbLogger
 
+import torch
 from data import ESMDataLightning
 from jespr import JESPR
 from util import load_esm_2, load_esm_if
 
 
-def main(args):
+def main(args, mode="train"):
     """Parse all args and run training loop
 
     Args:
-        args (dict): All arguments from the config file. 
+        args (dict): All arguments from the config file.
+        mode (str): mode to run in (train/exp). Defaults to "train".
     """
     # ___________ JESPR & Submodules ________________ #
     esm2_args = args["jespr"]["esm2"]
     esm_if_args = args["jespr"]["esm_if"]
     comb_emb_size = args["jespr"]["comb_emb_size"]  # Combined Embedding Size
-    norm_emb = args["jespr"]["norm_emb"]  # Normalize Individual seq. & str. Embeddings 
+    norm_emb = args["jespr"][
+        "norm_emb"
+    ]  # Normalize Individual seq. & str. Embeddings
 
     # ___________ Data ______________________________ #
     data_split_ratio = args["data"]["data_split_ratio"]
     max_seq_len = args["data"]["max_seq_len"]
     data_dir = args["data"]["data_dir"]
     train_shuffle = args["data"]["train_shuffle"]
-    val_shuffle= args["data"]["val_shuffle"]
+    val_shuffle = args["data"]["val_shuffle"]
     pin_memory = args["data"]["pin_memory"]
     num_workers = args["data"]["num_workers"]
-    
+
     # ___________ trainer ___________________________ #
     accelerator = args["trainer"]["accelerator"]
     precision = args["trainer"]["precision"]
     devices = args["trainer"]["devices"]
     batch_size = args["trainer"]["batch_size"]
     epochs = args["trainer"]["epochs"]
-    log_every_n_steps = args["trainer"]["log_every_n_steps"]  # batch steps not epochs
+    log_every_n_steps = args["trainer"][
+        "log_every_n_steps"
+    ]  # batch steps not epochs
     enable_progress_bar = args["trainer"]["enable_progress_bar"]
     val_check_interval = args["trainer"]["val_check_interval"]  # epochs
     limit_train_batches = args["trainer"]["limit_train_batches"]
     accumulate_grad_batches = args["trainer"]["accumulate_grad_batches"]
-    stochastic_weight_averaging = args["trainer"]["stochastic_weight_averaging"]
-    stochastic_weight_averaging_lr = args["trainer"]["stochastic_weight_averaging_lr"]
+    stochastic_weight_averaging = args["trainer"][
+        "stochastic_weight_averaging"
+    ]
+    stochastic_weight_averaging_lr = args["trainer"][
+        "stochastic_weight_averaging_lr"
+    ]
     detect_anomaly = args["trainer"]["detect_anomaly"]
     grad_clip_val = args["trainer"]["grad_clip_val"]
     grad_clip_algorithm = args["trainer"]["grad_clip_algorithm"]
@@ -80,9 +90,12 @@ def main(args):
         train_shuffle=train_shuffle,
         val_shuffle=val_shuffle,
         num_workers=num_workers,
-        pin_memory=pin_memory
+        pin_memory=pin_memory,
     )
-    
+
+    if mode != "train":
+        return (jespr, esm_data_lightning)
+
     print("Initializing Wandb Logger...")
     wandb_logger = WandbLogger(
         project=project_name, name=run_name, save_dir=logs_dir
@@ -90,8 +103,10 @@ def main(args):
 
     callbacks = []
     if stochastic_weight_averaging:
-        callbacks.append(StochasticWeightAveraging(swa_lrs=stochastic_weight_averaging_lr))
-    
+        callbacks.append(
+            StochasticWeightAveraging(swa_lrs=stochastic_weight_averaging_lr)
+        )
+
     print("Initializing Trainer...")
     trainer = Trainer(
         accelerator=accelerator,
@@ -116,9 +131,9 @@ def main(args):
         wandb_logger.experiment.config.update(args)
 
     print("Starting Training...")
-    trainer.fit(
-        model=jespr, datamodule=esm_data_lightning
-    )
+    trainer.fit(model=jespr, datamodule=esm_data_lightning)
+    return None
+
 
 if __name__ == "__main__":
     main()
