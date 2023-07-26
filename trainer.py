@@ -5,7 +5,7 @@ from lightning.pytorch.loggers import WandbLogger
 import torch
 from data import ESMDataLightning
 from jespr import JESPR
-from util import load_esm_2, load_esm_if
+from modules import load_esm_2, load_esm_if
 
 
 def main(args, mode="train"):
@@ -18,19 +18,21 @@ def main(args, mode="train"):
     # ___________ JESPR & Submodules ________________ #
     esm2_args = args["jespr"]["esm2"]
     esm_if_args = args["jespr"]["esm_if"]
-    comb_emb_size = args["jespr"]["comb_emb_size"]  # Combined Embedding Size
-    norm_emb = args["jespr"][
-        "norm_emb"
-    ]  # Normalize Individual seq. & str. Embeddings
+    joint_embedding_dim = args["jespr"]["joint_embedding_dim"]
+    norm_embedding = args["jespr"]["norm_embedding"]
+    temperature = args["jespr"]["temperature"]
+
+    # add joint_embedding_dim & norm_embedding to esm2 and esm-if args
+    esm2_args["joint_embedding_dim"] = joint_embedding_dim
+    esm_if_args["joint_embedding_dim"] = joint_embedding_dim
+    esm2_args["norm_embedding"] = norm_embedding
+    esm_if_args["norm_embedding"] = norm_embedding
 
     # ___________ Data ______________________________ #
-    data_split_ratio = args["data"]["data_split_ratio"]
-    max_seq_len = args["data"]["max_seq_len"]
-    data_dir = args["data"]["data_dir"]
-    train_shuffle = args["data"]["train_shuffle"]
-    val_shuffle = args["data"]["val_shuffle"]
-    pin_memory = args["data"]["pin_memory"]
-    num_workers = args["data"]["num_workers"]
+    data_args = args["data"]
+
+    # ___________ optim _____________________________ #
+    optim_args = args["optim"]  # Args to be passed to Optimizer
 
     # ___________ trainer ___________________________ #
     accelerator = args["trainer"]["accelerator"]
@@ -55,10 +57,6 @@ def main(args, mode="train"):
     grad_clip_val = args["trainer"]["grad_clip_val"]
     grad_clip_algorithm = args["trainer"]["grad_clip_algorithm"]
 
-    # ___________ optim _____________________________ #
-    optim_args = args["optim"]  # Args to be passed to Adam
-    lr = args["optim"]["lr"]
-
     # ___________ Meta ______________________________ #
     project_name = args["meta"]["project_name"]
     run_name = args["meta"]["run_name"]
@@ -73,24 +71,15 @@ def main(args, mode="train"):
         esm_if=esm_if,
         esm2_alphabet=alphabet_2,
         esm_if_alphabet=alphabet_if,
-        lr=lr,
-        norm_emb=norm_emb,
-        comb_emb_size=comb_emb_size,
         optim_args=optim_args,
+        temperature=temperature,
     )
 
     print("Loading DataModule...")
     esm_data_lightning = ESMDataLightning(
         esm2_alphabet=alphabet_2,
         esm_if_alphabet=alphabet_if,
-        batch_size=batch_size,
-        data_dir=data_dir,
-        split_ratio=data_split_ratio,
-        max_seq_len=max_seq_len,
-        train_shuffle=train_shuffle,
-        val_shuffle=val_shuffle,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
+        args=data_args,
     )
 
     if mode != "train":
