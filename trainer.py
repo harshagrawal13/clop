@@ -1,3 +1,4 @@
+from argparse import Namespace
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import StochasticWeightAveraging
 from lightning.pytorch.loggers import WandbLogger
@@ -79,7 +80,7 @@ def main(args, mode="train"):
     esm_data_lightning = ESMDataLightning(
         esm2_alphabet=alphabet_2,
         esm_if_alphabet=alphabet_if,
-        args=data_args,
+        args=Namespace(**data_args),
     )
 
     if mode != "train":
