@@ -189,9 +189,12 @@ class ESMDataLightning(LightningDataModule):
 
     def setup(self, stage):
         """Load Train and Val Dataset"""
+        dataset = ESMDataset(args=self.args)
+        data_len = dataset.__len__()
+        split_idx = int(data_len * self.args.split_ratio)
         self.train_dataset, self.val_dataset = random_split(
             ESMDataset(args=self.args),
-            [self.args.split_ratio, 1 - self.args.split_ratio],
+            [split_idx, data_len - split_idx],
         )
         self.train_loader = ESMDataLoader(
             esm2_alphabet=self.esm2_alphabet,
