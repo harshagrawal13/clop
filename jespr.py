@@ -103,11 +103,12 @@ class JESPR(pl.LightningModule):
     def training_step(self, batch, batch_idx):
         start_time = time.time()
         loss, logits = self.forward(batch)
-        self.log("metrics/step/train_loss", loss, batch_size=self.batch_size)
+        B = batch[0].shape[0]
+        self.log("metrics/step/train_loss", loss, batch_size=B)
         self.log(
             "metrics/step/time_per_train_step",
             time.time() - start_time,
-            batch_size=self.batch_size,
+            batch_size=B,
         )
         return {"loss": loss, "logits": logits}
 
@@ -118,12 +119,13 @@ class JESPR(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         start_time = time.time()
+        B = batch[0].shape[0]
         loss, _ = self.forward(batch)
-        self.log("metrics/step/val_loss", loss, batch_size=self.batch_size)
+        self.log("metrics/step/val_loss", loss, batch_size=B)
         self.log(
             "metrics/step/time_per_val_step",
             time.time() - start_time,
-            batch_size=self.batch_size,
+            batch_size=B,
         )
 
     def configure_optimizers(self) -> torch.optim.Adam:
