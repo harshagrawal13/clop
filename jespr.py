@@ -3,6 +3,8 @@ import time
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.optim import Adam
+from torch.optim.lr_scheduler import CosineAnnealingLR
 
 import lightning as pl
 
@@ -22,6 +24,7 @@ class JESPR(pl.LightningModule):
         esm_if_alphabet: Alphabet,
         optim_args: dict = {"lr": DEFAULT_LR},
         temperature: float = INIT_TEMP,
+        total_iterations: int = 10000,
     ) -> None:
         """
         JESPR Model
@@ -43,6 +46,8 @@ class JESPR(pl.LightningModule):
         self.temperature = nn.Parameter(torch.tensor(temperature))
 
         self.optim_args = optim_args
+        # Needed for LR scheduler
+        self.total_iterations = total_iterations
 
     def forward(self, x) -> tuple:
         """Foward Function for JESPR
@@ -57,7 +62,7 @@ class JESPR(pl.LightningModule):
         coords, confidence, strs, tokens, padding_mask = x
 
         # Get ESM2 & ESM-IF outputs. Shape: Batch_size * Joint_embed_dim
-        esm2_out = self.esm2(tokens, need_head_weights=False)
+        esm2_out = self.esm2(tokens, padding_mask)
         esm_if_out = self.esm_if(coords, padding_mask, confidence)
 
         B, J = esm2_out.shape
@@ -134,4 +139,13 @@ class JESPR(pl.LightningModule):
         Returns:
             torch.optim.Adam: Adam Optimizer
         """
-        return torch.optim.Adam(self.parameters(), **self.optim_args)
+        optimizer = Adam(self.parameters(), **self.optim_args)
+        scheduler = CosineAnnealingLR(
+            optimizer,
+            self.total_iterations,
+            eta_min=1e-6,
+            last_epoch=-1,
+            verbose=False,
+        )
+
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
