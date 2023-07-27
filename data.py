@@ -85,7 +85,8 @@ class ESMDataLoader(DataLoader):
         batch_size: int,
         shuffle: bool,
         num_workers: int,
-        pin_memory: bool,
+        # pin_memory: bool,
+        **kwargs
     ):
         """ESM DataLoader
 
@@ -104,17 +105,17 @@ class ESMDataLoader(DataLoader):
         self.esm_if_batch_converter = util.CoordBatchConverter(
             self.esm_if_alphabet
         )
-        self.esm_2_batch_converter = self.esm2_alphabet.get_batch_converter()
+        self.esm2_batch_converter = self.esm2_alphabet.get_batch_converter()
 
         # self.collate_fn = util.CoordBatchConverter(alphabet)
-        self.dataset = dataset
+
         super().__init__(
-            dataset=self.dataset,
+            dataset=dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=pin_memory,
+            # pin_memory=False,
         )
 
     def collate_fn(
@@ -135,7 +136,7 @@ class ESMDataLoader(DataLoader):
         inp_seqs = [("", item[2]) for item in batch]
 
         # Process ESM-2 ->
-        _labels, _strs, tokens = self.esm_2_batch_converter(inp_seqs)
+        _labels, _strs, tokens = self.esm2_batch_converter(inp_seqs)
 
         # Process ESM-IF ->
         (
@@ -181,7 +182,7 @@ class ESMDataLightning(LightningDataModule):
         self.esm_if_batch_converter = util.CoordBatchConverter(
             self.esm_if_alphabet
         )
-        self.esm_2_batch_converter = self.esm2_alphabet.get_batch_converter()
+        self.esm2_batch_converter = self.esm2_alphabet.get_batch_converter()
         self.args = args
 
     def prepare_data(self):
@@ -203,7 +204,7 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.args.batch_size,
             shuffle=self.args.train_shuffle,
             num_workers=self.args.train_num_workers,
-            pin_memory=self.args.train_pin_memory,
+            # pin_memory=self.args.train_pin_memory,
         )
 
         self.val_loader = ESMDataLoader(
@@ -213,7 +214,7 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.args.batch_size,
             shuffle=self.args.val_shuffle,
             num_workers=self.args.val_num_workers,
-            pin_memory=self.args.val_pin_memory,
+            # pin_memory=self.args.val_pin_memory,
         )
 
     def train_dataloader(self):

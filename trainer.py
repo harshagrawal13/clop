@@ -1,12 +1,15 @@
 from argparse import Namespace
 from lightning.pytorch import Trainer
-from lightning.pytorch.callbacks import StochasticWeightAveraging
+from lightning.pytorch.callbacks import (
+    StochasticWeightAveraging,
+    LearningRateMonitor,
+)
 from lightning.pytorch.loggers import WandbLogger
 
 import torch
 from data import ESMDataLightning
 from jespr import JESPR
-from modules import load_esm_2, load_esm_if
+from modules import load_esm2, load_esm_if
 
 
 def main(args, mode="train"):
@@ -47,6 +50,7 @@ def main(args, mode="train"):
     enable_progress_bar = args["trainer"]["enable_progress_bar"]
     val_check_interval = args["trainer"]["val_check_interval"]  # epochs
     limit_train_batches = args["trainer"]["limit_train_batches"]
+    overfit_batches = args["trainer"]["overfit_batches"]
     accumulate_grad_batches = args["trainer"]["accumulate_grad_batches"]
     stochastic_weight_averaging = args["trainer"][
         "stochastic_weight_averaging"
@@ -63,10 +67,22 @@ def main(args, mode="train"):
     run_name = args["meta"]["run_name"]
     logs_dir = args["meta"]["logs_dir"]
 
-    print("Initializing JESPR...")
-    esm2, alphabet_2 = load_esm_2(esm2_args)
+    esm2, alphabet_2 = load_esm2(esm2_args)
     esm_if, alphabet_if = load_esm_if(esm_if_args)
 
+    print("Loading DataModule...")
+    esm_data_lightning = ESMDataLightning(
+        esm2_alphabet=alphabet_2,
+        esm_if_alphabet=alphabet_if,
+        args=Namespace(**data_args),
+    )
+
+    esm_data_lightning.setup("fit")
+    total_iterations = epochs * (
+        len(esm_data_lightning.train_dataloader()) // batch_size
+    )
+
+    print("Initializing JESPR...")
     jespr = JESPR(
         esm2=esm2,
         esm_if=esm_if,
@@ -74,13 +90,7 @@ def main(args, mode="train"):
         esm_if_alphabet=alphabet_if,
         optim_args=optim_args,
         temperature=temperature,
-    )
-
-    print("Loading DataModule...")
-    esm_data_lightning = ESMDataLightning(
-        esm2_alphabet=alphabet_2,
-        esm_if_alphabet=alphabet_if,
-        args=Namespace(**data_args),
+        total_iterations=total_iterations,
     )
 
     if mode != "train":
@@ -91,7 +101,9 @@ def main(args, mode="train"):
         project=project_name, name=run_name, save_dir=logs_dir
     )
 
-    callbacks = []
+    callbacks = [
+        LearningRateMonitor(logging_interval="epoch", log_momentum=False)
+    ]
     if stochastic_weight_averaging:
         callbacks.append(
             StochasticWeightAveraging(swa_lrs=stochastic_weight_averaging_lr)
@@ -113,6 +125,7 @@ def main(args, mode="train"):
         enable_progress_bar=enable_progress_bar,
         gradient_clip_val=grad_clip_val,
         gradient_clip_algorithm=grad_clip_algorithm,
+        overfit_batches=overfit_batches,
     )
 
     # Wandb object only available to rank 0

@@ -52,7 +52,7 @@ def generate_esm_if_args():
     return model_args
 
 
-def load_esm_2(model_config: dict) -> Tuple[ESM2, Alphabet]:
+def load_esm2(model_config: dict) -> Tuple[ESM2, Alphabet]:
     """Load ESM2 model using saved args
 
     Args:
@@ -191,10 +191,10 @@ class _ESM2(ESM2):
     def forward(
         self,
         tokens: torch.tensor,
+        padding_mask: torch.tensor,
         need_head_weights=False,
     ):
         assert tokens.ndim == 2
-        padding_mask = tokens.eq(self.padding_idx)  # B, T
 
         x = self.embed_scale * self.embed_tokens(tokens)
 
@@ -225,7 +225,7 @@ class _ESM2(ESM2):
         num_layers = len(self.layers)
         hidden_representations = []
         for layer_idx, layer in enumerate(self.layers):
-            x, attn = layer(
+            x, _ = layer(
                 x,
                 self_attn_padding_mask=padding_mask,
                 need_head_weights=need_head_weights,
@@ -388,16 +388,9 @@ class WeightedLayerPooling(nn.Module):
                 bos: take the first token embedding in a batch.
                 eos: take the last token embedding in a batch.
         """
-        super(WeightedLayerPooling, self).__init__()
-        self.layer_weights = (
-            layer_weights
-            if layer_weights is not None
-            else nn.Parameter(
-                torch.tensor(
-                    [1] * (pool_last_n_layers),
-                    dtype=torch.float32,
-                )
-            )
+        super().__init__()
+        self.layer_weights = nn.Parameter(
+            torch.tensor([1.0] * (pool_last_n_layers))
         )
 
     def forward(
@@ -507,12 +500,19 @@ def return_mean_of_token_embeddings(
         encoder_states.ndim == 4
     ), "encoder_states must be of shape (num_hidden_layers, batch_size, seq_len, emb_size)"
     H, B, T, E = encoder_states.shape
-    assert max(batch_padding_lens) == T, "Padding Lens must be equal to T"
-    pooled_encoder_states = torch.zeros(H, B, E)
+    # assert (
+    #     max(batch_padding_lens) == T
+    # ), f"Max Padding Len: {batch_padding_lens} must be equal to T: {T}; H, B, T, E: {H, B, T, E}"
+    pooled_encoder_states = torch.zeros(H, B, E, device=encoder_states.device)
     for i, tokens_len in enumerate(batch_padding_lens):
-        pooled_encoder_states[:, i] = encoder_states[
-            :, i, 1 : tokens_len - 1
-        ].mean(dim=1)
+        if tokens_len <= 2:
+            pooled_encoder_states[:, i] = pooled_encoder_states[
+                :, i
+            ] = encoder_states[:, i, 1]
+        else:
+            pooled_encoder_states[:, i] = encoder_states[
+                :, i, 1 : tokens_len - 1
+            ].mean(dim=1)
     return pooled_encoder_states
 
 
