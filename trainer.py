@@ -34,6 +34,7 @@ def main(args, mode="train"):
 
     # ___________ Data ______________________________ #
     data_args = args["data"]
+    batch_size = args["data"]["batch_size"]
 
     # ___________ optim _____________________________ #
     optim_args = args["optim"]  # Args to be passed to Optimizer
@@ -42,7 +43,6 @@ def main(args, mode="train"):
     accelerator = args["trainer"]["accelerator"]
     precision = args["trainer"]["precision"]
     devices = args["trainer"]["devices"]
-    batch_size = args["trainer"]["batch_size"]
     epochs = args["trainer"]["epochs"]
     log_every_n_steps = args["trainer"][
         "log_every_n_steps"
