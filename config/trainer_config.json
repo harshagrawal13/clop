@@ -4,44 +4,54 @@
             "num_layers": 6,
             "embed_dim": 320,
             "attention_heads": 20,
-            "token_dropout": true
+            "token_dropout": true,
+            "layer_pool_strategy": "weighted",
+            "pool_last_n_layers": 3,
+            "token_pool_strategy": "mean",
+            "layer_pool_weights": null
         },
         "esm_if": {
             "gvp_node_hidden_dim_scalar": 100,
             "gvp_node_hidden_dim_vector":16,
-            "encoder_layers": 2
+            "encoder_layers": 2,
+            "layer_pool_strategy": "weighted",
+            "pool_last_n_layers": 2,
+            "token_pool_strategy": "mean",
+            "layer_pool_weights": null
         },
-        "comb_emb_size": 512,
-        "norm_emb": true
+        "joint_embedding_dim": 256,
+        "norm_embedding": true,
+        "temperature": 0.07
     },
     "data": {
-        "data_split_ratio": 0.8,
+        "data_dir": "data/",
+        "split_ratio": 0.8,    
         "max_seq_len": 200,
-        "data_dir": "/rds/general/user/ha1822/home/code/atom51/jespr/data",
+        "batch_size": 64,
         "train_shuffle": true,
+        "train_num_workers": 1,
         "val_shuffle": false,
-        "pin_memory": false,
-        "num_workers": 1
+        "val_num_workers": 1
     },
     "trainer": {
         "accelerator": "gpu",
         "precision": 32,
         "devices": 1,
-        "batch_size": 4,
         "epochs": 10,
-        "log_every_n_steps": 50,
-        "enable_progress_bar": 1,
-        "val_check_interval": 0.5,
+        "log_every_n_steps": 20,
+        "enable_progress_bar": false,
+        "val_check_interval": 0.2,
         "limit_train_batches": null,
+        "overfit_batches": 0,
         "accumulate_grad_batches": 1,
-        "stochastic_weight_averaging": false,
+        "stochastic_weight_averaging": true,
         "stochastic_weight_averaging_lr": 1e-2,
         "detect_anomaly": true,
         "grad_clip_val": 1.5,
         "grad_clip_algorithm": "norm"
     },
     "optim": {
-        "lr": 1e-4,
+        "lr": 1e-3,
         "weight_decay": 0.01,
         "betas": [
             0.9,
@@ -52,6 +62,6 @@
     "meta": {
         "project_name": "jespr_config_new",
         "run_name": null,
-        "logs_dir": "/rds/general/user/ha1822/home/code/atom51/jespr/logs"
+        "logs_dir": "logs/"
     }
 }

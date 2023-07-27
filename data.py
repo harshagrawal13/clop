@@ -3,72 +3,39 @@ import numpy as np
 import json
 import pickle
 from typing import Tuple
+from argparse import Namespace
+
 import torch
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import Dataset, DataLoader, random_split
 from lightning.pytorch.core import LightningDataModule
 
 from esm.inverse_folding import util
 from esm import Alphabet
 
-DEFAULT_NUM_WORKERS = 1
-MAX_SEQ_LEN = 200
-DEFAULT_SPLIT_RATIO = 0.8
-DEFAULT_TRAIN_SHUFFLE = True
-DEFAULT_VAL_SHUFFLE = False
-DEFAULT_PIN_MEMORY = False
-DEFUALT_SPLIT = "train"
-DEFAULT_DATA_DIR = path.join(path.dirname(path.abspath(__file__)), "data/")
-
 
 class ESMDataset(Dataset):
-    def __init__(
-        self,
-        data_dir=DEFAULT_DATA_DIR,
-        max_seq_len=MAX_SEQ_LEN,
-        split=DEFUALT_SPLIT,
-        **kwargs,
-    ):
+    def __init__(self, args: Namespace) -> None:
         """ESM Dataset: torch.utils.data.Dataset
 
         Args:
-            data_dir (str): Data Directory. Defaults to DEFAULT_DATA_DIR.
-            dataset_type (str): Dataset type. Defaults to "train".
-            max_seq_len (int): Max Sequence Length. Defaults to 200.
+            args (Namespace): Args for ESMDataset. Must Contain:
+                - data_dir (str): Data Directory
+                - max_seq_len (int): Max Sequence Length
         """
-        with open(path.join(data_dir, "all_structures.pkl"), "rb") as f:
+        with open(path.join(args.data_dir, "all_structures.pkl"), "rb") as f:
             self.structure_data = pickle.load(f)
 
-        with open(path.join(data_dir, "all_seqs.json"), "r") as f:
+        with open(path.join(args.data_dir, "all_seqs.json"), "r") as f:
             self.sequence_data = json.load(f)
 
-        with open(path.join(data_dir, "all_prot_names.json"), "r") as f:
+        with open(path.join(args.data_dir, "all_prot_names.json"), "r") as f:
             self.prot_names = json.load(f)
-        self.filter_data(max_seq_len)
 
-        # Split data
-        split_ratio = kwargs.get("split_ratio", DEFAULT_SPLIT_RATIO)
-        # return train/valid/test data
-        self.split_data(split, split_ratio)
+        # filter data by sequence length
+        if args.max_seq_len is not None:
+            self.filter_data(args.max_seq_len)
 
-    def split_data(self, split, split_ratio):
-        assert split in [
-            "train",
-            "val",
-        ], f"Split: {split} must be train/val"
-
-        # Data Split Index = Split Ratio * Total Dataset Length
-        data_split_idx = split_ratio * self.__len__()
-
-        if split == "train":
-            self.structure_data = self.structure_data[: int(data_split_idx)]
-            self.sequence_data = self.sequence_data[: int(data_split_idx)]
-            self.prot_names = self.prot_names[: int(data_split_idx)]
-        else:
-            self.structure_data = self.structure_data[int(data_split_idx) :]
-            self.sequence_data = self.sequence_data[int(data_split_idx) :]
-            self.prot_names = self.prot_names[int(data_split_idx) :]
-
-    def filter_data(self, max_seq_len: int):
+    def filter_data(self, max_seq_len: int) -> None:
         """Filter the dataset by sequence length
 
         Args:
@@ -96,20 +63,17 @@ class ESMDataset(Dataset):
         """
         return len(self.prot_names)
 
-    def __getitem__(self, idx) -> Tuple[np.ndarray, None, str]:
+    def __getitem__(self, idx: int) -> Tuple[np.ndarray, None, str]:
         """Returns the idx-th protein in the dataset
 
         Args:
-            idx (Protein index): Protein Index
+            idx (int): Protein Index
 
         Returns:
             Tuple[np.ndarray, None, str]: Protein Structure Data, None, Protein Sequence Data
         """
         # chunk where the idx-th protein is located
-        protein_structure = self.structure_data[idx]
-        protein_sequence = self.sequence_data[idx]
-        # protein_name = self.currently_opened_chunk["prot_names"][protein_idx]
-        return protein_structure, None, protein_sequence
+        return self.structure_data[idx], None, self.sequence_data[idx]
 
 
 class ESMDataLoader(DataLoader):
@@ -119,8 +83,9 @@ class ESMDataLoader(DataLoader):
         esm_if_alphabet: Alphabet,
         dataset: ESMDataset,
         batch_size: int,
-        shuffle: int,
-        num_workers=DEFAULT_NUM_WORKERS,
+        shuffle: bool,
+        num_workers: int,
+        # pin_memory: bool,
         **kwargs
     ):
         """ESM DataLoader
@@ -128,10 +93,11 @@ class ESMDataLoader(DataLoader):
         Args:
             esm2_alphabet (Alphabet): ESM-2 Alphabet
             esm_if_alphabet (Alphabet): ESM-IF Alphabet
-            data_dir (str): Data Directory. Defaults to DEFAULT_DATA_DIR.
-            batch_size (int): Batch Size. Defaults to 64.
-            shuffle (bool, optional): Shuffle Dataset. Defaults to True.
-            num_workers (int, optional): Num Workers to process dataset. Defaults to 1.
+            dataset (ESMDataset): ESMDataset.
+            batch_size (int): Batch Size
+            shuffle (bool): Shuffle
+            num_workers (int): Number of Workers
+            pin_memory (bool): Pin Memory
         """
         self.esm2_alphabet = esm2_alphabet
         self.esm_if_alphabet = esm_if_alphabet
@@ -139,21 +105,21 @@ class ESMDataLoader(DataLoader):
         self.esm_if_batch_converter = util.CoordBatchConverter(
             self.esm_if_alphabet
         )
-        self.esm_2_batch_converter = self.esm2_alphabet.get_batch_converter()
+        self.esm2_batch_converter = self.esm2_alphabet.get_batch_converter()
 
         # self.collate_fn = util.CoordBatchConverter(alphabet)
-        self.dataset = dataset
+
         super().__init__(
-            dataset=self.dataset,
+            dataset=dataset,
             batch_size=batch_size,
             shuffle=shuffle,
             num_workers=num_workers,
             collate_fn=self.collate_fn,
-            pin_memory=kwargs.get("pin_memory", DEFAULT_PIN_MEMORY),
+            # pin_memory=False,
         )
 
     def collate_fn(
-        self, batch
+        self, batch: list
     ) -> Tuple[torch.tensor, torch.tensor, list, torch.tensor, torch.tensor]:
         """
         Collate Function to process each batch
@@ -170,7 +136,7 @@ class ESMDataLoader(DataLoader):
         inp_seqs = [("", item[2]) for item in batch]
 
         # Process ESM-2 ->
-        _labels, _strs, tokens = self.esm_2_batch_converter(inp_seqs)
+        _labels, _strs, tokens = self.esm2_batch_converter(inp_seqs)
 
         # Process ESM-IF ->
         (
@@ -189,9 +155,26 @@ class ESMDataLightning(LightningDataModule):
         self,
         esm2_alphabet: Alphabet,
         esm_if_alphabet: Alphabet,
-        batch_size: int,
-        **kwargs,
-    ):
+        args: Namespace,
+    ) -> None:
+        """Initialize Lightning DataModule class for JESPR
+
+        Args:
+            esm2_alphabet (Alphabet): ESM-2 Alphabet
+            esm_if_alphabet (Alphabet): ESM-IF Alphabet
+            args (Namespace): Args. Must contain:
+                - data_dir (str): Data Directory
+                - split_ratio (int): Dataset split ratio. Eg: 0.8 (80% train, 20% val)
+                - max_seq_len (int): Max Sequence Length
+                - batch_size (int): Batch Size
+                - train_shuffle (bool): Train Shuffle
+                - train_num_workers (int): Train Loader - Number of Workers
+                - train_pin_memory (bool): Train Loader - Pin Memory
+                - val_shuffle (bool): Val Shuffle
+                - val_num_workers (int): Val Loader - Number of Workers
+                - val_pin_memory (bool): Val Loader - Pin Memory
+
+        """
         super().__init__()
         self.esm2_alphabet = esm2_alphabet
         self.esm_if_alphabet = esm_if_alphabet
@@ -199,46 +182,39 @@ class ESMDataLightning(LightningDataModule):
         self.esm_if_batch_converter = util.CoordBatchConverter(
             self.esm_if_alphabet
         )
-        self.esm_2_batch_converter = self.esm2_alphabet.get_batch_converter()
-
-        self.batch_size = batch_size
-        self.data_dir = kwargs.get("data_dir", DEFAULT_DATA_DIR)
-        self.max_seq_len = kwargs.get("max_seq_len")
-        self.split_ratio = kwargs.get("split_ratio", DEFAULT_SPLIT_RATIO)
-        self.train_shuffle = kwargs.get("train_shuffle", DEFAULT_TRAIN_SHUFFLE)
-        self.val_shuffle = kwargs.get("val_shuffle", DEFAULT_VAL_SHUFFLE)
-        self.num_workers = kwargs.get("num_workers", DEFAULT_NUM_WORKERS)
-        self.pin_memory = kwargs.get("pin_memory", DEFAULT_PIN_MEMORY)
+        self.esm2_batch_converter = self.esm2_alphabet.get_batch_converter()
+        self.args = args
 
     def prepare_data(self):
         pass
 
     def setup(self, stage):
         """Load Train and Val Dataset"""
-        self.train_dataset = ESMDataset(
-            self.data_dir, split="train", split_ratio=self.split_ratio, max_seq_len=self.max_seq_len
+        dataset = ESMDataset(args=self.args)
+        data_len = dataset.__len__()
+        split_idx = int(data_len * self.args.split_ratio)
+        self.train_dataset, self.val_dataset = random_split(
+            dataset,
+            [split_idx, data_len - split_idx],
         )
-        self.val_dataset = ESMDataset(
-            self.data_dir, split="val", split_ratio=self.split_ratio, max_seq_len=self.max_seq_len
-        )
-
         self.train_loader = ESMDataLoader(
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
             dataset=self.train_dataset,
-            shuffle=self.train_shuffle,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
-            pin_memory=self.pin_memory
+            batch_size=self.args.batch_size,
+            shuffle=self.args.train_shuffle,
+            num_workers=self.args.train_num_workers,
+            # pin_memory=self.args.train_pin_memory,
         )
 
         self.val_loader = ESMDataLoader(
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
             dataset=self.val_dataset,
-            shuffle=self.val_shuffle,
-            batch_size=self.batch_size,
-            num_workers=self.num_workers,
+            batch_size=self.args.batch_size,
+            shuffle=self.args.val_shuffle,
+            num_workers=self.args.val_num_workers,
+            # pin_memory=self.args.val_pin_memory,
         )
 
     def train_dataloader(self):

@@ -1,11 +1,15 @@
+from argparse import Namespace
 from lightning.pytorch import Trainer
-from lightning.pytorch.callbacks import StochasticWeightAveraging
+from lightning.pytorch.callbacks import (
+    StochasticWeightAveraging,
+    LearningRateMonitor,
+)
 from lightning.pytorch.loggers import WandbLogger
 
 import torch
 from data import ESMDataLightning
 from jespr import JESPR
-from util import load_esm_2, load_esm_if
+from modules import load_esm2, load_esm_if
 
 
 def main(args, mode="train"):
@@ -18,25 +22,27 @@ def main(args, mode="train"):
     # ___________ JESPR & Submodules ________________ #
     esm2_args = args["jespr"]["esm2"]
     esm_if_args = args["jespr"]["esm_if"]
-    comb_emb_size = args["jespr"]["comb_emb_size"]  # Combined Embedding Size
-    norm_emb = args["jespr"][
-        "norm_emb"
-    ]  # Normalize Individual seq. & str. Embeddings
+    joint_embedding_dim = args["jespr"]["joint_embedding_dim"]
+    norm_embedding = args["jespr"]["norm_embedding"]
+    temperature = args["jespr"]["temperature"]
+
+    # add joint_embedding_dim & norm_embedding to esm2 and esm-if args
+    esm2_args["joint_embedding_dim"] = joint_embedding_dim
+    esm_if_args["joint_embedding_dim"] = joint_embedding_dim
+    esm2_args["norm_embedding"] = norm_embedding
+    esm_if_args["norm_embedding"] = norm_embedding
 
     # ___________ Data ______________________________ #
-    data_split_ratio = args["data"]["data_split_ratio"]
-    max_seq_len = args["data"]["max_seq_len"]
-    data_dir = args["data"]["data_dir"]
-    train_shuffle = args["data"]["train_shuffle"]
-    val_shuffle = args["data"]["val_shuffle"]
-    pin_memory = args["data"]["pin_memory"]
-    num_workers = args["data"]["num_workers"]
+    data_args = args["data"]
+    batch_size = args["data"]["batch_size"]
+
+    # ___________ optim _____________________________ #
+    optim_args = args["optim"]  # Args to be passed to Optimizer
 
     # ___________ trainer ___________________________ #
     accelerator = args["trainer"]["accelerator"]
     precision = args["trainer"]["precision"]
     devices = args["trainer"]["devices"]
-    batch_size = args["trainer"]["batch_size"]
     epochs = args["trainer"]["epochs"]
     log_every_n_steps = args["trainer"][
         "log_every_n_steps"
@@ -44,6 +50,7 @@ def main(args, mode="train"):
     enable_progress_bar = args["trainer"]["enable_progress_bar"]
     val_check_interval = args["trainer"]["val_check_interval"]  # epochs
     limit_train_batches = args["trainer"]["limit_train_batches"]
+    overfit_batches = args["trainer"]["overfit_batches"]
     accumulate_grad_batches = args["trainer"]["accumulate_grad_batches"]
     stochastic_weight_averaging = args["trainer"][
         "stochastic_weight_averaging"
@@ -55,42 +62,35 @@ def main(args, mode="train"):
     grad_clip_val = args["trainer"]["grad_clip_val"]
     grad_clip_algorithm = args["trainer"]["grad_clip_algorithm"]
 
-    # ___________ optim _____________________________ #
-    optim_args = args["optim"]  # Args to be passed to Adam
-    lr = args["optim"]["lr"]
-
     # ___________ Meta ______________________________ #
     project_name = args["meta"]["project_name"]
     run_name = args["meta"]["run_name"]
     logs_dir = args["meta"]["logs_dir"]
 
-    print("Initializing JESPR...")
-    esm2, alphabet_2 = load_esm_2(esm2_args)
+    esm2, alphabet_2 = load_esm2(esm2_args)
     esm_if, alphabet_if = load_esm_if(esm_if_args)
-
-    jespr = JESPR(
-        esm2=esm2,
-        esm_if=esm_if,
-        esm2_alphabet=alphabet_2,
-        esm_if_alphabet=alphabet_if,
-        lr=lr,
-        norm_emb=norm_emb,
-        comb_emb_size=comb_emb_size,
-        optim_args=optim_args,
-    )
 
     print("Loading DataModule...")
     esm_data_lightning = ESMDataLightning(
         esm2_alphabet=alphabet_2,
         esm_if_alphabet=alphabet_if,
-        batch_size=batch_size,
-        data_dir=data_dir,
-        split_ratio=data_split_ratio,
-        max_seq_len=max_seq_len,
-        train_shuffle=train_shuffle,
-        val_shuffle=val_shuffle,
-        num_workers=num_workers,
-        pin_memory=pin_memory,
+        args=Namespace(**data_args),
+    )
+
+    esm_data_lightning.setup("fit")
+    total_iterations = epochs * (
+        len(esm_data_lightning.train_dataloader()) // batch_size
+    )
+
+    print("Initializing JESPR...")
+    jespr = JESPR(
+        esm2=esm2,
+        esm_if=esm_if,
+        esm2_alphabet=alphabet_2,
+        esm_if_alphabet=alphabet_if,
+        optim_args=optim_args,
+        temperature=temperature,
+        total_iterations=total_iterations,
     )
 
     if mode != "train":
@@ -101,7 +101,9 @@ def main(args, mode="train"):
         project=project_name, name=run_name, save_dir=logs_dir
     )
 
-    callbacks = []
+    callbacks = [
+        LearningRateMonitor(logging_interval="epoch", log_momentum=False)
+    ]
     if stochastic_weight_averaging:
         callbacks.append(
             StochasticWeightAveraging(swa_lrs=stochastic_weight_averaging_lr)
@@ -123,6 +125,7 @@ def main(args, mode="train"):
         enable_progress_bar=enable_progress_bar,
         gradient_clip_val=grad_clip_val,
         gradient_clip_algorithm=grad_clip_algorithm,
+        overfit_batches=overfit_batches,
     )
 
     # Wandb object only available to rank 0
