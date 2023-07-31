@@ -43,7 +43,7 @@ class JESPR(pl.LightningModule):
         self.esm_if, self.esm_if_alphabet = esm_if, esm_if_alphabet
 
         # For scaling the cosing similarity score
-        self.temperature = nn.Parameter(torch.tensor(temperature))
+        self.temperature = nn.Parameter(torch.exp(torch.tensor(temperature)))
 
         self.optim_args = optim_args
         # Needed for LR scheduler
