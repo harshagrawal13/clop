@@ -1,10 +1,11 @@
 from os import path
 import time
+from typing import Any
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR
+from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR
 
 import lightning as pl
 
@@ -13,6 +14,7 @@ from modules import _ESM2, _ESM_IF
 
 DEFAULT_LR = 3e-4
 INIT_TEMP = 0.07
+NUM_HOMOLOGY_FOLDS = 1195
 
 
 class JESPR(pl.LightningModule):
@@ -62,7 +64,7 @@ class JESPR(pl.LightningModule):
         coords, confidence, strs, tokens, padding_mask = x
 
         # Get ESM2 & ESM-IF outputs. Shape: Batch_size * Joint_embed_dim
-        esm2_out = self.esm2(tokens, padding_mask)
+        esm2_out = self.esm2(tokens)
         esm_if_out = self.esm_if(coords, padding_mask, confidence)
 
         B, J = esm2_out.shape
@@ -147,5 +149,94 @@ class JESPR(pl.LightningModule):
             last_epoch=-1,
             verbose=False,
         )
+
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+
+
+class JESPR_RH(pl.LightningModule):
+    def __init__(
+        self,
+        esm2: _ESM2,
+        optim_args: dict = {
+            "lr": DEFAULT_LR,
+            "total_iterations": 10000,
+        },
+    ) -> None:
+        """_summary_
+
+        Args:
+            esm2 (_ESM2): ESM2 Model
+            optim_args (dict): Optimizer args.
+        """
+        super().__init__()
+        self.esm2 = esm2
+        self.optim_args = optim_args
+        self.pred_linear = nn.Linear(
+            in_features=self.esm2.joint_embedding_projection.out_features,
+            out_features=NUM_HOMOLOGY_FOLDS,
+        )
+
+    def forward(self, x) -> tuple:
+        tokens, class_labels = x
+        esm2_out = self.esm2(tokens)  # B * Joint_embed_dim
+        logits = self.pred_linear(esm2_out)  # B * NUM_HOMOLOGY_FOLDS
+
+        loss = torch.nn.functional.cross_entropy(logits, class_labels)
+        return loss, logits, class_labels
+
+    @torch.no_grad()
+    def calc_argmax_acc(
+        self, logits: torch.tensor, class_labels: torch.tensor
+    ) -> float:
+        """Calculate Argmax Accuracy
+
+        Args:
+            logits (torch.tensor): Prediction Probabilities
+            class_labels (torch.tensor): Class Labels
+
+        Returns:
+            float: Argmax Accuracy
+        """
+        b = logits.shape[0]  # Batch Size
+        argmax_acc = (logits.argmax(1) == class_labels).sum().item() / b
+        return argmax_acc
+
+    def training_step(self, batch, batch_idx):
+        start_time = time.time()
+        B = batch[0].shape[0]
+        loss, logits, labels = self.forward(batch)
+        self.log("metrics/step/train_loss", loss, batch_size=B)
+        self.log(
+            "metrics/step/time_per_train_step",
+            time.time() - start_time,
+            batch_size=B,
+        )
+        return loss
+
+    def validation_step(self, batch, batch_idx):
+        start_time = time.time()
+        B = batch[0].shape[0]
+        loss, logits, labels = self.forward(batch)
+        self.log("metrics/step/val_loss", loss, batch_size=B)
+        self.log(
+            "metrics/step/time_per_val_step",
+            time.time() - start_time,
+            batch_size=B,
+        )
+        return (logits, labels)
+
+    def on_validation_batch_end(self, outputs, batch, batch_idx):
+        argmax_acc = self.calc_argmax_acc(outputs[0], outputs[1])
+        self.log("metrics/step/accuracy", argmax_acc)
+
+    def configure_optimizers(self) -> torch.optim.Adam:
+        """Return Optimizer
+
+        Returns:
+            torch.optim.Adam: Adam Optimizer
+            torch.optim.lr_scheduler.ExponentialLR: ExponentialLR
+        """
+        optimizer = Adam(self.parameters(), **self.optim_args)
+        scheduler = ExponentialLR(optimizer, gamma=0.99)
 
         return {"optimizer": optimizer, "lr_scheduler": scheduler}

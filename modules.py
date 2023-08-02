@@ -191,10 +191,10 @@ class _ESM2(ESM2):
     def forward(
         self,
         tokens: torch.tensor,
-        padding_mask: torch.tensor,
         need_head_weights=False,
     ):
         assert tokens.ndim == 2
+        padding_mask = tokens.eq(self.padding_idx)
 
         x = self.embed_scale * self.embed_tokens(tokens)
 
