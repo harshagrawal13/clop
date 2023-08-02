@@ -159,7 +159,6 @@ class JESPR_RH(pl.LightningModule):
         esm2: _ESM2,
         optim_args: dict = {
             "lr": DEFAULT_LR,
-            "total_iterations": 10000,
         },
     ) -> None:
         """_summary_
