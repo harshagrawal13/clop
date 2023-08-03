@@ -14,22 +14,20 @@ from esm import Alphabet
 
 
 class ESMDataset(Dataset):
-    def __init__(self, args: Namespace) -> None:
+    def __init__(self, split: str, args: Namespace) -> None:
         """ESM Dataset: torch.utils.data.Dataset
 
         Args:
+            split (str): Split (train, val, test)
             args (Namespace): Args for ESMDataset. Must Contain:
                 - data_dir (str): Data Directory
                 - max_seq_len (int): Max Sequence Length
         """
-        with open(path.join(args.data_dir, "all_structures.pkl"), "rb") as f:
-            self.structure_data = pickle.load(f)
-
-        with open(path.join(args.data_dir, "all_seqs.json"), "r") as f:
-            self.sequence_data = json.load(f)
-
-        with open(path.join(args.data_dir, "all_prot_names.json"), "r") as f:
-            self.prot_names = json.load(f)
+        if args.dataset_name == "cath":
+            with open(
+                path.join(args.data_dir, f"cath/{split}.pkl"), "rb"
+            ) as f:
+                self.data = pickle.load(f)
 
         # filter data by sequence length
         if args.max_seq_len is not None:
@@ -41,19 +39,13 @@ class ESMDataset(Dataset):
         Args:
             max_seq_len (int): Maximum sequence length
         """
-        structure_data = []
-        sequence_data = []
-        prot_names = []
-        for i, seq in enumerate(self.sequence_data):
-            if len(seq) <= max_seq_len:
-                structure_data.append(self.structure_data[i])
-                sequence_data.append(seq)
-                prot_names.append(self.prot_names[i])
+        data = []
+        for item in self.data:
+            if len(item["seq"]) <= max_seq_len:
+                data.append(item)
 
         # update the dataset
-        self.structure_data = structure_data
-        self.sequence_data = sequence_data
-        self.prot_names = prot_names
+        self.data = data
 
     def __len__(self) -> int:
         """Returns the length of the dataset
@@ -61,7 +53,7 @@ class ESMDataset(Dataset):
         Returns:
             _type_: _description_
         """
-        return len(self.prot_names)
+        return len(self.data)
 
     def __getitem__(self, idx: int) -> Tuple[np.ndarray, None, str]:
         """Returns the idx-th protein in the dataset
@@ -73,7 +65,8 @@ class ESMDataset(Dataset):
             Tuple[np.ndarray, None, str]: Protein Structure Data, None, Protein Sequence Data
         """
         # chunk where the idx-th protein is located
-        return self.structure_data[idx], None, self.sequence_data[idx]
+        item = self.data[idx]
+        return item["coords"].astype(np.float32), None, item["seq"]
 
 
 class ESMDataLoader(DataLoader):
@@ -85,7 +78,6 @@ class ESMDataLoader(DataLoader):
         batch_size: int,
         shuffle: bool,
         num_workers: int,
-        # pin_memory: bool,
         **kwargs,
     ):
         """ESM DataLoader
@@ -97,7 +89,6 @@ class ESMDataLoader(DataLoader):
             batch_size (int): Batch Size
             shuffle (bool): Shuffle
             num_workers (int): Number of Workers
-            pin_memory (bool): Pin Memory
         """
         self.esm2_alphabet = esm2_alphabet
         self.esm_if_alphabet = esm_if_alphabet
@@ -115,7 +106,6 @@ class ESMDataLoader(DataLoader):
             shuffle=shuffle,
             num_workers=num_workers,
             collate_fn=self.collate_fn,
-            # pin_memory=False,
         )
 
     def collate_fn(
@@ -189,48 +179,65 @@ class ESMDataLightning(LightningDataModule):
         pass
 
     def setup(self, stage):
-        """Load Train and Val Dataset"""
-        dataset = ESMDataset(args=self.args)
-        data_len = dataset.__len__()
-        split_idx = int(data_len * self.args.split_ratio)
-        self.train_dataset, self.val_dataset = random_split(
-            dataset,
-            [split_idx, data_len - split_idx],
-        )
-        self.train_loader = ESMDataLoader(
+        """
+        Load Dataset depending on stage
+
+        Args:
+            stage (str): Stage. Either "fit" or "test"
+        """
+
+        if stage == "fit":
+            self.train_dataset = ESMDataset(split="train", args=self.args)
+            self.val_dataset = ESMDataset(split="val", args=self.args)
+        else:
+            self.test_dataset = ESMDataset(split="test", args=self.args)
+
+    def train_dataloader(self) -> ESMDataLoader:
+        assert self.train_dataset is not None, "Train Dataset is None"
+        data_loader = ESMDataLoader(
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
             dataset=self.train_dataset,
             batch_size=self.args.batch_size,
             shuffle=self.args.train_shuffle,
             num_workers=self.args.train_num_workers,
-            # pin_memory=self.args.train_pin_memory,
         )
+        return data_loader
 
-        self.val_loader = ESMDataLoader(
+    def val_dataloader(self) -> ESMDataLoader:
+        assert self.val_dataset is not None, "Val Dataset is None"
+        data_loader = ESMDataLoader(
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
             dataset=self.val_dataset,
             batch_size=self.args.batch_size,
             shuffle=self.args.val_shuffle,
             num_workers=self.args.val_num_workers,
-            # pin_memory=self.args.val_pin_memory,
         )
-
-    def train_dataloader(self):
-        return self.train_loader
-
-    def val_dataloader(self):
-        return self.val_loader
+        return data_loader
 
     def test_dataloader(self):
-        return self.val_loader
+        assert self.test_dataset is not None, "Test Dataset is None"
+        data_loader = ESMDataLoader(
+            esm2_alphabet=self.esm2_alphabet,
+            esm_if_alphabet=self.esm_if_alphabet,
+            dataset=self.test_dataset,
+            batch_size=self.args.batch_size,
+            shuffle=self.args.val_shuffle,
+            num_workers=self.args.val_num_workers,
+        )
+        return data_loader
 
     def teardown(self, stage):
         # clean up after fit or test
         # called on every process in DDP
-        self.train_loader = None
-        self.val_loader = None
+        if stage == "fit":
+            self.train_dataset = None
+            self.val_dataset = None
+        elif stage == "test":
+            self.test_dataset = None
+        else:
+            print(f"Invalid stage: {stage}")
 
 
 class RemoteHomologyDataset(Dataset):
@@ -248,26 +255,17 @@ class RemoteHomologyDataset(Dataset):
         Raises:
             ValueError: If Split is invalid
         """
-        if split == "train":
-            dataset_dir = path.join(data_dir, "remote_homology/train.pkl")
-        elif split == "val":
-            dataset_dir = path.join(data_dir, "remote_homology/val.pkl")
-        elif split == "test_family_holdout":
-            dataset_dir = path.join(
-                data_dir, "remote_homology/test_family_holdout.pkl"
-            )
-        elif split == "test_superfamily_holdout":
-            dataset_dir = path.join(
-                data_dir, "remote_homology/test_superfamily_holdout.pkl"
-            )
-        elif split == "test_fold_holdout":
-            dataset_dir = path.join(
-                data_dir, "remote_homology/test_fold_holdout.pkl"
-            )
-        else:
-            raise ValueError(f"Invalid Split: {split}")
+        assert split in [
+            "train",
+            "val",
+            "test_family_holdout",
+            "test_superfamily_holdout",
+            "test_fold_holdout",
+        ], f"Invalid Split: {split}"
 
-        with open(dataset_dir, "rb") as f:
+        with open(
+            path.join(data_dir, f"remote_homology/{split}.pkl"), "rb"
+        ) as f:
             self.data = pickle.load(f)
 
         assert label_to_predict in [
