@@ -2,6 +2,7 @@ from os import path
 import time
 from typing import Any
 import numpy as np
+import scipy
 import torch
 import torch.nn as nn
 from torch.optim import Adam
@@ -227,6 +228,105 @@ class JESPR_RH(pl.LightningModule):
     def on_validation_batch_end(self, outputs, batch, batch_idx):
         argmax_acc = self.calc_argmax_acc(outputs[0], outputs[1])
         self.log("metrics/step/accuracy", argmax_acc)
+
+    def configure_optimizers(self) -> torch.optim.Adam:
+        """Return Optimizer
+
+        Returns:
+            torch.optim.Adam: Adam Optimizer
+            torch.optim.lr_scheduler.ExponentialLR: ExponentialLR
+        """
+        optimizer = Adam(self.parameters(), **self.optim_args)
+        scheduler = ExponentialLR(optimizer, gamma=0.99)
+
+        return {"optimizer": optimizer, "lr_scheduler": scheduler}
+
+
+class JESPR_Regression(pl.LightningModule):
+    def __init__(
+        self,
+        esm2: _ESM2,
+        optim_args: dict = {
+            "lr": DEFAULT_LR,
+        },
+        acc_metric_on_train_batch: bool = True,
+    ) -> None:
+        """JESPR Regression Class. Can be used for both Log Stability Prediction & Log Fluorescence Prediction.
+
+        Args:
+            esm2 (_ESM2): ESM2 Model
+            optim_args (dict): Optimizer args.
+        """
+        super().__init__()
+        self.esm2 = esm2
+        self.optim_args = optim_args
+        self.pred_linear = nn.Linear(
+            in_features=self.esm2.joint_embedding_projection.out_features,
+            out_features=1,
+        )
+        self.mse_loss_fn = nn.MSELoss()
+        self.acc_metric_on_train_batch = acc_metric_on_train_batch
+
+    def forward(self, x) -> tuple:
+        tokens, y = x
+        esm2_out = self.esm2(tokens)  # B * Joint_embed_dim
+        y_pred = self.pred_linear(esm2_out).squeeze()  # B
+
+        loss = self.mse_loss_fn(y_pred, y)
+        return loss, y_pred, y
+
+    @torch.no_grad()
+    def spearmanr(target: np.array, prediction: np.array) -> float:
+        """Spearman R correlation.
+        Taken from https://github.com/songlab-cal/tape/blob/master/tape/metrics.py
+
+        Args:
+            target (np.array): Target
+            prediction (np.array): Prediction
+
+        Returns:
+            float: Spearman R correlation
+        """
+        return scipy.stats.spearmanr(target, prediction).correlation
+
+    def training_step(self, batch, batch_idx):
+        start_time = time.time()
+        B = batch[0].shape[0]
+        loss, y_pred, y = self.forward(batch)
+        self.log("metrics/step/train_loss", loss, batch_size=B)
+        self.log(
+            "metrics/step/time_per_train_step",
+            time.time() - start_time,
+            batch_size=B,
+        )
+        return {"loss": loss, "y_pred": y_pred, "y": y}
+
+    def validation_step(self, batch, batch_idx):
+        start_time = time.time()
+        B = batch[0].shape[0]
+        loss, y_pred, y = self.forward(batch)
+        self.log("metrics/step/val_loss", loss, batch_size=B)
+        self.log(
+            "metrics/step/time_per_val_step",
+            time.time() - start_time,
+            batch_size=B,
+        )
+        return {"loss": loss, "y_pred": y_pred, "y": y}
+
+    def on_train_batch_end(self, outputs, batch, batch_idx):
+        # Only calculate Spearman R correlation on train batch if specified
+        if self.acc_metric_on_train_batch:
+            spearman_r = self.spearmanr(
+                outputs["y"].detach().numpy(),
+                outputs["y_pred"].detach().numpy(),
+            )
+            self.log("metrics/step/train_spearman_r", spearman_r)
+
+    def on_validation_batch_end(self, outputs, batch, batch_idx):
+        spearman_r = self.spearmanr(
+            outputs["y"].detach().numpy(), outputs["y_pred"].detach().numpy()
+        )
+        self.log("metrics/step/val_spearman_r", spearman_r)
 
     def configure_optimizers(self) -> torch.optim.Adam:
         """Return Optimizer
