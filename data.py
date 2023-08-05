@@ -23,17 +23,17 @@ class ESMDataset(Dataset):
                 - data_dir (str): Data Directory
                 - max_seq_len (int): Max Sequence Length
         """
-        if args.dataset_name == "cath":
-            with open(
-                path.join(args.data_dir, f"cath/{split}.pkl"), "rb"
-            ) as f:
-                self.data = pickle.load(f)
+        assert args.dataset_name in ["cath", "pdb"], "Invalid Dataset Name"
+        with open(
+            path.join(args.data_dir, f"{args.dataset_name}/{split}.pkl"), "rb"
+        ) as f:
+            self.data = pickle.load(f)
 
         # filter data by sequence length
         if args.max_seq_len is not None:
-            self.filter_data(args.max_seq_len)
+            self.filter_data(args.max_seq_len, args.min_seq_len)
 
-    def filter_data(self, max_seq_len: int) -> None:
+    def filter_data(self, max_seq_len: int, min_seq_len: int) -> None:
         """Filter the dataset by sequence length
 
         Args:
@@ -41,7 +41,10 @@ class ESMDataset(Dataset):
         """
         data = []
         for item in self.data:
-            if len(item["seq"]) <= max_seq_len:
+            if (
+                len(item["seq"]) <= max_seq_len
+                and len(item["seq"]) >= min_seq_len
+            ):
                 data.append(item)
 
         # update the dataset
