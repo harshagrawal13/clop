@@ -219,15 +219,16 @@ class _ESM2(ESM2):
         # (B, T, E) => (T, B, E)
         x = x.transpose(0, 1)
 
-        if not padding_mask.any():
-            padding_mask = None
+        self_attn_padding_mask = (
+            None if not padding_mask.any() else padding_mask
+        )
 
         num_layers = len(self.layers)
         hidden_representations = []
         for layer_idx, layer in enumerate(self.layers):
             x, _ = layer(
                 x,
-                self_attn_padding_mask=padding_mask,
+                self_attn_padding_mask=self_attn_padding_mask,
                 need_head_weights=need_head_weights,
             )
             if num_layers - layer_idx <= self.pool_last_n_layers:
