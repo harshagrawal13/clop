@@ -1,6 +1,5 @@
 from os import path
 import time
-from typing import Any
 import numpy as np
 import scipy
 import torch
@@ -122,19 +121,25 @@ class JESPR(pl.LightningModule):
 
     def on_train_batch_end(self, outputs, batch, batch_idx):
         argmax_acc = self.calc_argmax_acc(outputs["logits"])
-        self.log("metrics/step/argmax_acc_structure", argmax_acc["acc_str"])
-        self.log("metrics/step/argmax_acc_sequence", argmax_acc["acc_seq"])
+        self.log("metrics/train/argmax_acc_structure", argmax_acc["acc_str"])
+        self.log("metrics/train/argmax_acc_sequence", argmax_acc["acc_seq"])
+
+    def on_validation_batch_end(self, outputs, batch, batch_idx):
+        argmax_acc = self.calc_argmax_acc(outputs["logits"])
+        self.log("metrics/val/argmax_acc_structure", argmax_acc["acc_str"])
+        self.log("metrics/val/argmax_acc_sequence", argmax_acc["acc_seq"])
 
     def validation_step(self, batch, batch_idx):
         start_time = time.time()
         B = batch[0].shape[0]
-        loss, _ = self.forward(batch)
+        loss, logits = self.forward(batch)
         self.log("metrics/step/val_loss", loss, batch_size=B)
         self.log(
             "metrics/step/time_per_val_step",
             time.time() - start_time,
             batch_size=B,
         )
+        return {"loss": loss, "logits": logits}
 
     def configure_optimizers(self) -> torch.optim.Adam:
         """Return Optimizer
