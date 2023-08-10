@@ -281,6 +281,9 @@ class _ESM_IF(GVPTransformerEncoder):
         )
         super().__init__(args, args.alphabet, encoder_embed_tokens)
 
+        # Not used in loss calculation (DDP error)
+        del self.layer_norm
+
         self.num_layers = args.encoder_layers
 
         # pooling
