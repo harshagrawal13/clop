@@ -67,6 +67,7 @@ def main(args, mode="train"):
     project_name = args["meta"]["project_name"]
     run_name = args["meta"]["run_name"]
     logs_dir = args["meta"]["logs_dir"]
+    checkpoint = args["meta"]["checkpoint"]
 
     esm2, alphabet_2 = load_esm2(esm2_args)
     esm_if, alphabet_if = load_esm_if(esm_if_args)
@@ -95,12 +96,29 @@ def main(args, mode="train"):
     )
 
     if mode == "exp_no_trainer":
+        if checkpoint["lightning_checkpoint"]:
+            print(
+                f"Loading Checkpoint from : {checkpoint['lightning_checkpoint']}..."
+            )
+            jespr = jespr.load_from_checkpoint(
+                checkpoint["lightning_checkpoint"]
+            )
         return (jespr, esm_data_lightning)
 
     print("Initializing Wandb Logger...")
-    wandb_logger = WandbLogger(
-        project=project_name, name=run_name, save_dir=logs_dir
-    )
+
+    if checkpoint["wandb_run_id"]:
+        print(f"Loading Wandb Run...: {checkpoint['wandb_run_id']}")
+        wandb_logger = WandbLogger(
+            project=project_name,
+            save_dir=logs_dir,
+            resume="must",
+            id=checkpoint["wandb_run_id"],
+        )
+    else:
+        wandb_logger = WandbLogger(
+            project=project_name, save_dir=logs_dir, name=run_name
+        )
 
     callbacks = [
         LearningRateMonitor(logging_interval="epoch", log_momentum=False)
@@ -138,7 +156,16 @@ def main(args, mode="train"):
         return (jespr, esm_data_lightning, trainer, wandb_logger)
 
     print("Starting Training...")
-    trainer.fit(model=jespr, datamodule=esm_data_lightning)
+    ckpt_path = (
+        checkpoint["lightning_checkpoint"]
+        if checkpoint["lightning_checkpoint"]
+        else None
+    )
+    trainer.fit(
+        model=jespr,
+        datamodule=esm_data_lightning,
+        ckpt_path=ckpt_path,
+    )
     return None
 
 

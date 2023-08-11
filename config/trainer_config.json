@@ -64,6 +64,10 @@
     "meta": {
         "project_name": "jespr_config_new",
         "run_name": null,
-        "logs_dir": "logs/"
+        "logs_dir": "logs/",
+        "checkpoint": {
+            "lightning_checkpoint": null,
+            "wandb_run_id": null
+        }
     }
 }
