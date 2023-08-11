@@ -19,6 +19,7 @@ def main(args, mode="train"):
         args (dict): All arguments from the config file.
         mode (str): mode to run in (train/exp). Defaults to "train".
     """
+    assert mode in ["train", "exp_no_trainer", "exp_with_trainer"]
     # ___________ JESPR & Submodules ________________ #
     esm2_args = args["jespr"]["esm2"]
     esm_if_args = args["jespr"]["esm_if"]
@@ -93,7 +94,7 @@ def main(args, mode="train"):
         total_iterations=total_iterations,
     )
 
-    if mode != "train":
+    if mode == "exp_no_trainer":
         return (jespr, esm_data_lightning)
 
     print("Initializing Wandb Logger...")
@@ -132,6 +133,9 @@ def main(args, mode="train"):
     if trainer.global_rank == 0:
         # Add all config params
         wandb_logger.experiment.config.update(args)
+
+    if mode == "exp_with_trainer":
+        return (jespr, esm_data_lightning, trainer, wandb_logger)
 
     print("Starting Training...")
     trainer.fit(model=jespr, datamodule=esm_data_lightning)
