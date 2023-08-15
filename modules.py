@@ -185,7 +185,11 @@ class SequenceEncoder(ESM2):
         x = x.transpose(0, 1)
 
         if self.token_pool_strategy == "mean":
-            batch_padding_lens = (~padding_mask).sum(-1)
+            if padding_mask is None:
+                B, T, E = x.shape
+                batch_padding_lens = torch.tensor(T).expand(B)
+            else:
+                batch_padding_lens = (~padding_mask).sum(-1)
             pool_tokens = return_mean_of_token_embeddings(
                 x, batch_padding_lens
             )
