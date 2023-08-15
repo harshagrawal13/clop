@@ -1,32 +1,31 @@
 {
     "jespr": {
-        "esm2": {
+        "sequence_encoder": {
             "num_layers": 6,
             "embed_dim": 320,
             "attention_heads": 20,
             "token_dropout": true,
-            "layer_pool_strategy": "weighted",
-            "pool_last_n_layers": 3,
+            "layer_pool_strategy": null,
+            "pool_last_n_layers": null,
             "token_pool_strategy": "mean",
-            "layer_pool_weights": null
+            "layer_pool_weights": null,
+            "final_layer_dropout": 0.2
         },
-        "esm_if": {
+        "structure_encoder": {
             "gvp_node_hidden_dim_scalar": 100,
             "gvp_node_hidden_dim_vector":16,
             "encoder_layers": 2,
-            "layer_pool_strategy": "weighted",
-            "pool_last_n_layers": 2,
+            "layer_pool_strategy": null,
+            "pool_last_n_layers": null,
             "token_pool_strategy": "mean",
-            "layer_pool_weights": null
+            "layer_pool_weights": null,
+            "final_layer_dropout": 0.2
         },
-        "joint_embedding_dim": 256,
-        "norm_embedding": true,
-        "temperature": 0.07
+        "joint_embedding_dim": 256
     },
     "data": {
         "dataset_name": "pdb",
         "data_dir": "data/",
-        "split_ratio": 0.8,    
         "max_seq_len": 500,
         "min_seq_len": 20,
         "batch_size": 64,
@@ -39,27 +38,38 @@
         "accelerator": "gpu",
         "precision": 32,
         "devices": 1,
+        "num_nodes": 1,
         "epochs": 10,
         "log_every_n_steps": 20,
         "enable_progress_bar": false,
         "val_check_interval": 0.2,
+        "check_val_every_n_epoch": 1,
         "limit_train_batches": null,
+        "limit_val_batches": null,
         "overfit_batches": 0,
         "accumulate_grad_batches": 1,
         "stochastic_weight_averaging": true,
-        "stochastic_weight_averaging_lr": 1e-2,
+        "stochastic_weight_averaging_lr": 1e-3,
         "detect_anomaly": true,
         "grad_clip_val": 1.5,
         "grad_clip_algorithm": "norm"
     },
     "optim": {
-        "lr": 1e-3,
-        "weight_decay": 0.01,
-        "betas": [
-            0.9,
-            0.999
-        ],
-        "eps": 1e-8
+        "optim_args": {
+            "lr": 3e-4,
+            "weight_decay": 0.01,
+            "betas": [
+                0.9,
+                0.999
+            ],
+            "eps": 1e-8
+        },
+        "scheduler": {
+            "type": "cyclic_lr",
+            "base_lr": 1e-5,
+            "max_lr": 1e-3,
+            "mode": "triangular2"
+        }
     },
     "meta": {
         "project_name": "jespr_config_new",

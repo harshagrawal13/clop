@@ -52,56 +52,6 @@ def generate_esm_if_args():
     return model_args
 
 
-def load_esm2(model_config: dict) -> Tuple[ESM2, Alphabet]:
-    """Load ESM2 model using saved args
-
-    Args:
-        model_config (dict): Model Config
-        joint_embedding_dim (int): Joint Embedding Dimension
-
-    Returns:
-        Tuple[ESM2, Alphabet]: ESM2 model and Alphabet
-    """
-    # Load ESM-2 Base model args, alphabet args, and the given model config
-
-    with open(path.join(SAVE_DIR, "default_alphabet_args.json"), "r") as f:
-        alphabet_args = json.load(f)["esm2"]
-
-    alphabet = Alphabet(**alphabet_args)
-    model_config["alphabet"] = alphabet
-    esm2 = _ESM2(args=Namespace(**model_config))
-
-    return esm2, alphabet
-
-
-def load_esm_if(model_config: dict) -> Tuple[GVPTransformerModel, Alphabet]:
-    """Load ESM-IF model using saved args
-
-    Args:
-        model_config (dict): ESM-IF Args
-
-    Returns:
-        Tuple[GVPTransformerModel, Alphabet]: ESM-IF model and Alphabet
-    """
-
-    with open(path.join(SAVE_DIR, "default_alphabet_args.json"), "r") as f:
-        alphabet_args = json.load(f)["esm_if"]
-
-    with open(path.join(SAVE_DIR, "default_esm_if_args.json"), "r") as f:
-        esm_if_args = json.load(f)
-
-    # Update model args with the given model type args
-    for arg, val in model_config.items():
-        esm_if_args[arg] = val
-
-    alphabet = Alphabet(**alphabet_args)
-    esm_if_args["alphabet"] = alphabet
-
-    esm_if = _ESM_IF(Namespace(**esm_if_args))
-
-    return esm_if, alphabet
-
-
 # TODO: revisit this.
 def visualize_logits(self, layers: list) -> None:
     """Visualize Logits
@@ -130,7 +80,7 @@ def visualize_logits(self, layers: list) -> None:
     plt.title("activation distribution")
 
 
-class _ESM2(ESM2):
+class SequenceEncoder(ESM2):
     """Modified ESM2 Class with pooling and joint embedding projections"""
 
     def __init__(self, args: Namespace):
@@ -161,38 +111,40 @@ class _ESM2(ESM2):
         # Remove layers not used in loss calculation
         del self.lm_head
         del self.contact_head
-        del self.emb_layer_norm_after
 
-        # pooling
-        assert (
-            args.pool_last_n_layers <= args.num_layers
-        ), "pool_last_n_layers must be less than or equal to than num_layers"
-
-        self.pool_last_n_layers = args.pool_last_n_layers
+        # Token Pooler
         self.token_pool_strategy = args.token_pool_strategy
-        self.layer_pool_strategy = args.layer_pool_strategy
+        assert self.token_pool_strategy in ["mean", "bos"]
 
-        # Initialize hidden layer pooler
+        # Layer Pooler
+        self.layer_pool_strategy = args.layer_pool_strategy
         if self.layer_pool_strategy is not None:
+            self.pool_last_n_layers = args.pool_last_n_layers
+            assert (
+                args.pool_last_n_layers <= args.num_layers
+            ), "pool_last_n_layers must be less than or equal to than num_layers"
+
             self.layer_pooler = get_layer_pooler(
                 self.layer_pool_strategy,
                 self.pool_last_n_layers,
                 args.layer_pool_weights,
             )
 
-        self.after_pool_ln = nn.LayerNorm(args.embed_dim)
-
         # Project Sequence Embedding to Joint Embedding Space
         self.joint_embedding_projection = nn.Linear(
             args.embed_dim, args.joint_embedding_dim
         )
-        self.norm_embedding = args.norm_embedding
+        self.after_proj_ln = nn.LayerNorm(args.joint_embedding_dim)
+        self.after_proj_dropout = nn.Dropout(args.final_layer_dropout)
 
     def forward(
         self,
         tokens: torch.tensor,
         need_head_weights=False,
     ):
+        """
+        Forward Function for Seq Encoder
+        """
         assert tokens.ndim == 2
         padding_mask = tokens.eq(self.padding_idx)
 
@@ -219,51 +171,37 @@ class _ESM2(ESM2):
         # (B, T, E) => (T, B, E)
         x = x.transpose(0, 1)
 
-        self_attn_padding_mask = (
-            None if not padding_mask.any() else padding_mask
-        )
+        if not padding_mask.any():
+            padding_mask = None
 
-        num_layers = len(self.layers)
-        hidden_representations = []
-        for layer_idx, layer in enumerate(self.layers):
+        for _, layer in enumerate(self.layers):
             x, _ = layer(
                 x,
-                self_attn_padding_mask=self_attn_padding_mask,
+                self_attn_padding_mask=padding_mask,
                 need_head_weights=need_head_weights,
             )
-            if num_layers - layer_idx <= self.pool_last_n_layers:
-                hidden_representations.append(x.transpose(0, 1))
 
-        # Pool Tokens per layer. H * B * T * E -> H * B * E
-        batch_padding_lens = (~padding_mask).sum(-1)
-        pooled_representations = pool_tokens_per_layer(
-            torch.stack(hidden_representations),
-            batch_padding_lens,
-            self.token_pool_strategy,
-        )
+        x = self.emb_layer_norm_after(x)
+        x = x.transpose(0, 1)
 
-        # Layer Pooling. H * B * E -> B * E
-        if self.layer_pool_strategy is not None:
-            pooled_representations = self.layer_pooler(pooled_representations)
-        else:
-            # Get the representations from the final layer
-            pooled_representations = pooled_representations[-1]
+        if self.token_pool_strategy == "mean":
+            batch_padding_lens = (~padding_mask).sum(-1)
+            pool_tokens = return_mean_of_token_embeddings(
+                x, batch_padding_lens
+            )
+        elif self.token_pool_strategy == "bos":
+            pool_tokens = x[:, 0]
 
-        # Layer Norm after Pooling
-        pooled_representations = self.after_pool_ln(pooled_representations)
-
-        # Linear Projection to joint embedding dim & Another Layer Norm
-        seq_projection = self.joint_embedding_projection(
-            pooled_representations
-        )
-        # Shape: Batch size * Joint Embedding Dim
-        if self.norm_embedding:
-            seq_projection = normalize_embeddings(seq_projection)
+        # Joint Embedding Projections & Regularizations
+        seq_projection = self.joint_embedding_projection(pool_tokens)
+        seq_projection = self.after_proj_dropout(seq_projection)
+        seq_projection = self.after_proj_ln(seq_projection)
+        seq_projection = normalize_embeddings(seq_projection)
 
         return seq_projection
 
 
-class _ESM_IF(GVPTransformerEncoder):
+class StructureEncoder(GVPTransformerEncoder):
     def __init__(self, args: Namespace):
         """Initialize ESM_IF Model inherited from GVPTransformerEncoder
 
@@ -281,36 +219,31 @@ class _ESM_IF(GVPTransformerEncoder):
         )
         super().__init__(args, args.alphabet, encoder_embed_tokens)
 
-        # Not used in loss calculation (DDP error)
-        del self.layer_norm
-
-        self.num_layers = args.encoder_layers
-
-        # pooling
-        assert (
-            args.pool_last_n_layers <= self.num_layers
-        ), "pool_last_n_layers must be less than or equal to than num_layers"
-
-        # Pool last n layers
-        self.layer_pool_strategy = args.layer_pool_strategy
-        self.pool_last_n_layers = args.pool_last_n_layers
+        # Token Pool
         self.token_pool_strategy = args.token_pool_strategy
+        assert self.token_pool_strategy in ["mean", "bos"]
 
-        # Initialize hidden layer pooler
+        # Layer Pool
+        self.layer_pool_strategy = args.layer_pool_strategy
         if self.layer_pool_strategy is not None:
+            self.pool_last_n_layers = args.pool_last_n_layers
+            self.num_layers = args.encoder_layers
+            assert (
+                args.pool_last_n_layers <= self.num_layers
+            ), "pool_last_n_layers must be less than or equal to than num_layers"
+
             self.layer_pooler = get_layer_pooler(
                 self.layer_pool_strategy,
                 self.pool_last_n_layers,
                 args.layer_pool_weights,
             )
 
-        self.after_pool_ln = nn.LayerNorm(args.encoder_embed_dim)
-
-        # Project Structural Embedding to Joint Embedding Space
+        # Joint Embedding Projection
         self.joint_embedding_projection = nn.Linear(
             args.encoder_embed_dim, args.joint_embedding_dim
         )
-        self.norm_embedding = args.norm_embedding
+        self.after_proj_ln = nn.LayerNorm(args.joint_embedding_dim)
+        self.after_proj_dropout = nn.Dropout(args.final_layer_dropout)
 
     @classmethod
     def build_embedding(cls, dictionary, embed_dim):
@@ -334,39 +267,25 @@ class _ESM_IF(GVPTransformerEncoder):
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
-        # encoder layers
-        hidden_representations = []
-        for layer_idx, layer in enumerate(self.layers):
+        for layer in self.layers:
             x = layer(x, encoder_padding_mask=encoder_padding_mask)
 
-            if self.num_layers - layer_idx <= self.pool_last_n_layers:
-                hidden_representations.append(x.transpose(0, 1))
+        x = self.layer_norm(x)
+        x = x.transpose(0, 1)  # B * T * C
 
-        # Pool Tokens per layer. H * B * T * E -> H * B * E
-        batch_padding_lens = (~encoder_padding_mask).sum(-1)
-        pooled_representations = pool_tokens_per_layer(
-            torch.stack(hidden_representations),
-            batch_padding_lens,
-            self.token_pool_strategy,
-        )
-
-        # Layer Pooling. H * B * E -> B * E
-        if self.layer_pool_strategy is not None:
-            pooled_representations = self.layer_pooler(pooled_representations)
+        if self.token_pool_strategy == "mean":
+            batch_padding_lens = (~encoder_padding_mask).sum(-1)
+            pool_tokens = return_mean_of_token_embeddings(
+                x, batch_padding_lens
+            )
         else:
-            # Get the representations from the final layer
-            pooled_representations = pooled_representations[-1]
+            pool_tokens = x[:, 0]  # B * C
 
-        # Layer Norm after Pooling
-        pooled_representations = self.after_pool_ln(pooled_representations)
-
-        # Linear Projection to joint embedding dim & Another Layer Norm
-        structure_embedding = self.joint_embedding_projection(
-            pooled_representations
-        )
-        # Shape: Batch size * Joint Embedding Dim
-        if self.norm_embedding:
-            structure_embedding = normalize_embeddings(structure_embedding)
+        # Joint Embedding Projections & Regularizations
+        structure_embedding = self.joint_embedding_projection(pool_tokens)
+        structure_embedding = self.after_proj_dropout(structure_embedding)
+        structure_embedding = self.after_proj_ln(structure_embedding)
+        structure_embedding = normalize_embeddings(structure_embedding)
         return structure_embedding
 
 
@@ -486,7 +405,7 @@ def get_layer_pooler(
 
 
 def return_mean_of_token_embeddings(
-    encoder_states: torch.tensor, batch_padding_lens: torch.tensor
+    token_embeddings: torch.tensor, batch_padding_lens: torch.tensor
 ) -> torch.tensor:
     """
     Take mean of token embeddings from encoder states.
@@ -494,81 +413,24 @@ def return_mean_of_token_embeddings(
 
 
     Args:
-        encoder_states (torch.tensor): Encoder States of shape Hidden Layers x Batch Size x Seq Len x Emb Size.
+        token_embeddings (torch.tensor): Encoder States of shape Hidden Layers x Batch Size x Seq Len x Emb Size.
         batch_padding_lens (torch.tensor): Batch Padding lengths of length: Batch Size.
 
     Returns:
         torch.tensor: Output of shape (num_hidden_layers, batch_size, emb_size)
     """
-    assert (
-        encoder_states.ndim == 4
-    ), "encoder_states must be of shape (num_hidden_layers, batch_size, seq_len, emb_size)"
-    H, B, T, E = encoder_states.shape
-    # assert (
-    #     max(batch_padding_lens) == T
-    # ), f"Max Padding Len: {batch_padding_lens} must be equal to T: {T}; H, B, T, E: {H, B, T, E}"
-    pooled_encoder_states = torch.zeros(H, B, E, device=encoder_states.device)
+    assert token_embeddings.ndim == 3
+    B, T, E = token_embeddings.shape
+
+    pooled_token_embeddings = torch.zeros(B, E, device=token_embeddings.device)
     for i, tokens_len in enumerate(batch_padding_lens):
         if tokens_len <= 2:
-            pooled_encoder_states[:, i] = pooled_encoder_states[
-                :, i
-            ] = encoder_states[:, i, 1]
+            pooled_token_embeddings[i] = token_embeddings[i, 1]
         else:
-            pooled_encoder_states[:, i] = encoder_states[
-                :, i, 1 : tokens_len - 1
-            ].mean(dim=1)
-    return pooled_encoder_states
-
-
-def return_bos_token_embedding(encoder_states: torch.tensor) -> torch.tensor:
-    """Return bos token (beginning of sentence) token embedding
-
-    Args:
-        encoder_states (torch.tensor): Encoder States of shape Hidden Layers x Batch Size x Seq Len x Emb Size.
-
-    Returns:
-        torch.tensor: EOS tokens for all hidden states of shape Hidden Layers x Batch Size x Emb Size.
-    """
-    assert (
-        len(encoder_states.shape) == 4
-    ), "encoder_states must be of shape (num_hidden_layers, batch_size, seq_len, emb_size)"
-    return encoder_states[:, :, 0, :]
-
-
-def pool_tokens_per_layer(
-    encoder_hidden_states: torch.tensor,
-    batch_padding_lens: torch.tensor,
-    pool_strategy: str,
-) -> torch.tensor:
-    """Pool Tokens per Layer from Encoder States
-
-    Args:
-        encoder_hidden_states (torch.tensor): Encoder States of Shape:
-            Num Hidden Layers * Batch Size * Seq Len * Emb Size
-        batch_padding_lens (torch.tensor | None): Padding Lens of shape Batch Size.
-            Required for mean pooling
-        pool_strategy (str): Pooling Strategy (mean/bos)
-
-    Returns:
-        torch.tensor: Pooled Tokens per Layer of shape Num Hidden Layers * Batch Size * Emb Size
-    """
-    if pool_strategy == "mean":
-        assert (
-            batch_padding_lens is not None
-        ), "batch_padding_lens should not be None for mean pooling"
-        pooled_hidden_states = return_mean_of_token_embeddings(
-            encoder_hidden_states, batch_padding_lens
-        )
-    # bos
-    elif pool_strategy == "bos":
-        pooled_hidden_states = return_bos_token_embedding(
-            encoder_hidden_states
-        )
-    else:
-        raise ValueError(
-            f"pool_strategy must be either mean/bos, not {pool_strategy}"
-        )
-    return pooled_hidden_states
+            pooled_token_embeddings[i] = token_embeddings[
+                i, 1 : tokens_len - 1
+            ].mean(dim=0)
+    return pooled_token_embeddings
 
 
 def normalize_embeddings(embeddings: torch.tensor) -> torch.tensor:
@@ -582,3 +444,57 @@ def normalize_embeddings(embeddings: torch.tensor) -> torch.tensor:
         torch.tensor: Normalized Embeddings. (B, E)
     """
     return embeddings / embeddings.norm(dim=1, keepdim=True)
+
+
+def load_sequence_encoder(
+    model_config: dict,
+) -> Tuple[SequenceEncoder, Alphabet]:
+    """Load ESM2 model using saved args
+
+    Args:
+        model_config (dict): Model Config
+        joint_embedding_dim (int): Joint Embedding Dimension
+
+    Returns:
+        Tuple[SequenceEncoder, Alphabet]: ESM2 model and Alphabet
+    """
+    # Load ESM-2 Base model args, alphabet args, and the given model config
+
+    with open(path.join(SAVE_DIR, "default_alphabet_args.json"), "r") as f:
+        alphabet_args = json.load(f)["esm2"]
+
+    alphabet = Alphabet(**alphabet_args)
+    model_config["alphabet"] = alphabet
+    seq_encoder = SequenceEncoder(args=Namespace(**model_config))
+
+    return seq_encoder, alphabet
+
+
+def load_structure_encoder(
+    model_config: dict,
+) -> Tuple[StructureEncoder, Alphabet]:
+    """Load ESM-IF model using saved args
+
+    Args:
+        model_config (dict): ESM-IF Args
+
+    Returns:
+        Tuple[StructureEncoder, Alphabet]: ESM-IF model and Alphabet
+    """
+
+    with open(path.join(SAVE_DIR, "default_alphabet_args.json"), "r") as f:
+        alphabet_args = json.load(f)["esm_if"]
+
+    with open(path.join(SAVE_DIR, "default_esm_if_args.json"), "r") as f:
+        esm_if_args = json.load(f)
+
+    # Update model args with the given model type args
+    for arg, val in model_config.items():
+        esm_if_args[arg] = val
+
+    alphabet = Alphabet(**alphabet_args)
+    esm_if_args["alphabet"] = alphabet
+
+    structure_encoder = StructureEncoder(Namespace(**esm_if_args))
+
+    return structure_encoder, alphabet

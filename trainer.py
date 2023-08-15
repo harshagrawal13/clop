@@ -9,7 +9,7 @@ from lightning.pytorch.loggers import WandbLogger
 import torch
 from data import ESMDataLightning
 from jespr import JESPR
-from modules import load_esm2, load_esm_if
+from modules import load_sequence_encoder, load_structure_encoder
 
 
 def main(args, mode="train"):
@@ -17,21 +17,17 @@ def main(args, mode="train"):
 
     Args:
         args (dict): All arguments from the config file.
-        mode (str): mode to run in (train/exp). Defaults to "train".
+        mode (str): mode to run in (train/exp_no_trainer/exp_with_trainer). Defaults to "train".
     """
     assert mode in ["train", "exp_no_trainer", "exp_with_trainer"]
     # ___________ JESPR & Submodules ________________ #
-    esm2_args = args["jespr"]["esm2"]
-    esm_if_args = args["jespr"]["esm_if"]
+    seq_encoder_args = args["jespr"]["sequence_encoder"]
+    struct_encoder_args = args["jespr"]["structure_encoder"]
     joint_embedding_dim = args["jespr"]["joint_embedding_dim"]
-    norm_embedding = args["jespr"]["norm_embedding"]
-    temperature = args["jespr"]["temperature"]
 
     # add joint_embedding_dim & norm_embedding to esm2 and esm-if args
-    esm2_args["joint_embedding_dim"] = joint_embedding_dim
-    esm_if_args["joint_embedding_dim"] = joint_embedding_dim
-    esm2_args["norm_embedding"] = norm_embedding
-    esm_if_args["norm_embedding"] = norm_embedding
+    seq_encoder_args["joint_embedding_dim"] = joint_embedding_dim
+    struct_encoder_args["joint_embedding_dim"] = joint_embedding_dim
 
     # ___________ Data ______________________________ #
     data_args = args["data"]
@@ -50,7 +46,9 @@ def main(args, mode="train"):
     ]  # batch steps not epochs
     enable_progress_bar = args["trainer"]["enable_progress_bar"]
     val_check_interval = args["trainer"]["val_check_interval"]  # epochs
+    check_val_every_n_epoch = args["trainer"]["check_val_every_n_epoch"]
     limit_train_batches = args["trainer"]["limit_train_batches"]
+    limit_val_batches = args["trainer"]["limit_val_batches"]
     overfit_batches = args["trainer"]["overfit_batches"]
     accumulate_grad_batches = args["trainer"]["accumulate_grad_batches"]
     stochastic_weight_averaging = args["trainer"][
@@ -69,8 +67,8 @@ def main(args, mode="train"):
     logs_dir = args["meta"]["logs_dir"]
     checkpoint = args["meta"]["checkpoint"]
 
-    esm2, alphabet_2 = load_esm2(esm2_args)
-    esm_if, alphabet_if = load_esm_if(esm_if_args)
+    seq_encoder, alphabet_2 = load_sequence_encoder(seq_encoder_args)
+    struct_encoder, alphabet_if = load_structure_encoder(struct_encoder_args)
 
     print("Loading DataModule...")
     esm_data_lightning = ESMDataLightning(
@@ -79,20 +77,13 @@ def main(args, mode="train"):
         args=Namespace(**data_args),
     )
 
-    esm_data_lightning.setup("fit")
-    total_iterations = epochs * (
-        len(esm_data_lightning.train_dataloader()) // batch_size
-    )
-
     print("Initializing JESPR...")
     jespr = JESPR(
-        esm2=esm2,
-        esm_if=esm_if,
+        sequence_encoder=seq_encoder,
+        structure_encoder=struct_encoder,
         esm2_alphabet=alphabet_2,
         esm_if_alphabet=alphabet_if,
         optim_args=optim_args,
-        temperature=temperature,
-        total_iterations=total_iterations,
     )
 
     if mode == "exp_no_trainer":
@@ -121,7 +112,7 @@ def main(args, mode="train"):
         )
 
     callbacks = [
-        LearningRateMonitor(logging_interval="epoch", log_momentum=False)
+        LearningRateMonitor(logging_interval="step", log_momentum=False)
     ]
     if stochastic_weight_averaging:
         callbacks.append(
@@ -136,9 +127,11 @@ def main(args, mode="train"):
         log_every_n_steps=log_every_n_steps,
         detect_anomaly=detect_anomaly,
         val_check_interval=val_check_interval,
+        check_val_every_n_epoch=check_val_every_n_epoch,
         logger=wandb_logger,
         max_epochs=epochs,
         limit_train_batches=limit_train_batches,
+        limit_val_batches=limit_val_batches,
         accumulate_grad_batches=accumulate_grad_batches,
         callbacks=callbacks,
         enable_progress_bar=enable_progress_bar,
