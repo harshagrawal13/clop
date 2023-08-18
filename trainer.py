@@ -1,4 +1,6 @@
+from os import listdir
 from os import path
+from typing import Optional
 import json
 import argparse
 from argparse import Namespace
@@ -6,6 +8,7 @@ from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import (
     StochasticWeightAveraging,
     LearningRateMonitor,
+    EarlyStopping,
 )
 from lightning.pytorch.loggers import WandbLogger
 
@@ -13,6 +16,88 @@ import torch
 from data import ESMDataLightning
 from jespr import JESPR
 from modules import load_sequence_encoder, load_structure_encoder
+
+
+def build_callbacks(callback_args: dict) -> list:
+    """Build Lightning Callbacks
+
+    Args:
+        callback_args (dict): Callback args from config
+    """
+    callbacks = []
+    # Early Stopping
+    if callback_args["early_stopping"]["enabled"]:
+        callbacks.append(
+            EarlyStopping(
+                monitor=callback_args["early_stopping"]["monitor"],
+                patience=callback_args["early_stopping"]["patience"],
+                min_delta=callback_args["early_stopping"]["min_delta"],
+                mode=callback_args["early_stopping"]["mode"],
+                verbose=callback_args["early_stopping"]["verbose"],
+            )
+        )
+
+    # Stochastic Weight Averaging
+    if callback_args["stochastic_weight_averaging"]["enabled"]:
+        callbacks.append(
+            StochasticWeightAveraging(
+                swa_lrs=callback_args["stochastic_weight_averaging"]["lrs"],
+                swa_epoch_start=callback_args["stochastic_weight_averaging"][
+                    "swa_epoch_start"
+                ],
+                annealing_epochs=callback_args["stochastic_weight_averaging"][
+                    "annealing_epochs"
+                ],
+                annealing_strategy=callback_args[
+                    "stochastic_weight_averaging"
+                ]["annealing_strategy"],
+            )
+        )
+
+    # Learning Rate Monitor
+    if callback_args["learning_rate_monitor"]["enabled"]:
+        callbacks.append(
+            LearningRateMonitor(
+                logging_interval=callback_args["learning_rate_monitor"][
+                    "logging_interval"
+                ],
+                log_momentum=callback_args["learning_rate_monitor"][
+                    "log_momentum"
+                ],
+            )
+        )
+
+    return callbacks
+
+
+def build_logger(
+    logger_args: dict, checkpoint_id: Optional(str, None)
+) -> WandbLogger:
+    """Build Wandb Logger
+
+    Args:
+        logger_args (dict): Logger Args
+        checkpoint_id (Optional): Checkpoint Id optionally to resume run
+
+    Returns:
+        WandbLogger: _description_
+    """
+    if checkpoint_id:
+        print(f"Loading Wandb Run...: {checkpoint_id}")
+
+        wandb_logger = WandbLogger(
+            project=logger_args["project_name"],
+            save_dir=logger_args["logs_dir"],
+            resume="must",
+            id=checkpoint_id,
+        )
+    else:
+        wandb_logger = WandbLogger(
+            name=logger_args["run_name"],
+            project=logger_args["project_name"],
+            save_dir=logger_args["logs_dir"],
+        )
+    return wandb_logger
 
 
 def main(args, mode="train"):
@@ -54,21 +139,27 @@ def main(args, mode="train"):
     limit_val_batches = args["trainer"]["limit_val_batches"]
     overfit_batches = args["trainer"]["overfit_batches"]
     accumulate_grad_batches = args["trainer"]["accumulate_grad_batches"]
-    stochastic_weight_averaging = args["trainer"][
-        "stochastic_weight_averaging"
-    ]
-    stochastic_weight_averaging_lr = args["trainer"][
-        "stochastic_weight_averaging_lr"
-    ]
     detect_anomaly = args["trainer"]["detect_anomaly"]
     grad_clip_val = args["trainer"]["grad_clip_val"]
     grad_clip_algorithm = args["trainer"]["grad_clip_algorithm"]
+    checkpoint_id = args["trainer"]["checkpoint_id"]
+    callback_args = args["trainer"]["callbacks"]
+    callbacks = build_callbacks(callback_args)
 
-    # ___________ Meta ______________________________ #
-    project_name = args["meta"]["project_name"]
-    run_name = args["meta"]["run_name"]
-    logs_dir = args["meta"]["logs_dir"]
-    checkpoint = args["meta"]["checkpoint"]
+    ckpt_path = (
+        listdir(
+            path.join(
+                logger_args["logs_dir"],
+                logger_args["project_name"],
+                checkpoint_id,
+            )
+        )[-1]
+        if checkpoint_id
+        else None
+    )
+
+    # ___________ Logger ______________________________ #
+    logger_args = args["logger"]
 
     seq_encoder, alphabet_2 = load_sequence_encoder(seq_encoder_args)
     struct_encoder, alphabet_if = load_structure_encoder(struct_encoder_args)
@@ -90,37 +181,13 @@ def main(args, mode="train"):
     )
 
     if mode == "exp_no_trainer":
-        if checkpoint["lightning_checkpoint"]:
-            print(
-                f"Loading Checkpoint from : {checkpoint['lightning_checkpoint']}..."
-            )
-            jespr = jespr.load_from_checkpoint(
-                checkpoint["lightning_checkpoint"]
-            )
+        if checkpoint_id:
+            print(f"Loading Checkpoint from id: {ckpt_path}...")
+            jespr = jespr.load_from_checkpoint(ckpt_path)
         return (jespr, esm_data_lightning)
 
     print("Initializing Wandb Logger...")
-
-    if checkpoint["wandb_run_id"]:
-        print(f"Loading Wandb Run...: {checkpoint['wandb_run_id']}")
-        wandb_logger = WandbLogger(
-            project=project_name,
-            save_dir=logs_dir,
-            resume="must",
-            id=checkpoint["wandb_run_id"],
-        )
-    else:
-        wandb_logger = WandbLogger(
-            project=project_name, save_dir=logs_dir, name=run_name
-        )
-
-    callbacks = [
-        LearningRateMonitor(logging_interval="step", log_momentum=False)
-    ]
-    if stochastic_weight_averaging:
-        callbacks.append(
-            StochasticWeightAveraging(swa_lrs=stochastic_weight_averaging_lr)
-        )
+    wandb_logger = build_logger(logger_args, checkpoint_id)
 
     print("Initializing Trainer...")
     trainer = Trainer(
@@ -152,11 +219,7 @@ def main(args, mode="train"):
         return (jespr, esm_data_lightning, trainer, wandb_logger)
 
     print("Starting Training...")
-    ckpt_path = (
-        checkpoint["lightning_checkpoint"]
-        if checkpoint["lightning_checkpoint"]
-        else None
-    )
+
     trainer.fit(
         model=jespr,
         datamodule=esm_data_lightning,

@@ -52,7 +52,30 @@
         "stochastic_weight_averaging_lr": 1e-3,
         "detect_anomaly": true,
         "grad_clip_val": 1.5,
-        "grad_clip_algorithm": "norm"
+        "grad_clip_algorithm": "norm",
+        "checkpoint_id": null,
+        "callbacks": {
+            "early_stopping": {
+                "enabled": true,
+                "monitor": "metrics/val/loss",
+                "min_delta": 0.0,
+                "patience": 3,
+                "mode": "min",
+                "verbose": true
+            },
+            "stochastic_weight_averaging": {
+                "enabled": true,
+                "lrs": 1e-3,
+                "swa_epoch_start": 0,
+                "annealing_epochs": 2,
+                "annealing_strategy": "cos"
+            },
+            "learning_rate_monitor": {
+                "enabled": true,
+                "logging_interval": "step",
+                "log_momentum": false
+            }
+        }
     },
     "optim": {
         "optim_args": {
@@ -71,13 +94,9 @@
             "mode": "triangular2"
         }
     },
-    "meta": {
+    "logger": {
         "project_name": "jespr_config_new",
         "run_name": null,
-        "logs_dir": "logs/",
-        "checkpoint": {
-            "lightning_checkpoint": null,
-            "wandb_run_id": null
-        }
+        "logs_dir": "logs/"
     }
 }
