@@ -1,3 +1,6 @@
+from os import path
+import json
+import argparse
 from argparse import Namespace
 from lightning.pytorch import Trainer
 from lightning.pytorch.callbacks import (
@@ -163,4 +166,18 @@ def main(args, mode="train"):
 
 
 if __name__ == "__main__":
-    main()
+    arg_parser = argparse.ArgumentParser()
+    arg_parser.add_argument(
+        "-f",
+        "--config_path",
+        type=str,
+        default=path.join(
+            path.dirname(__file__), "config/trainer_config.json"
+        ),
+        help="Path for the Train Config Json File",
+    )
+
+    config_file_path = arg_parser.parse_known_args()[0].config_path
+    with open(config_file_path, "r") as f:
+        args = json.load(f)
+    main(args=args)
