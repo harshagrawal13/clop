@@ -66,7 +66,7 @@
             "stochastic_weight_averaging": {
                 "enabled": true,
                 "lrs": 1e-3,
-                "swa_epoch_start": 0,
+                "swa_epoch_start": 0.5,
                 "annealing_epochs": 2,
                 "annealing_strategy": "cos"
             },

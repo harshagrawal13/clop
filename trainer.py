@@ -1,6 +1,5 @@
 from os import listdir
 from os import path
-from typing import Optional
 import json
 import argparse
 from argparse import Namespace
@@ -70,9 +69,7 @@ def build_callbacks(callback_args: dict) -> list:
     return callbacks
 
 
-def build_logger(
-    logger_args: dict, checkpoint_id: Optional(str, None)
-) -> WandbLogger:
+def build_logger(logger_args: dict, checkpoint_id: str) -> WandbLogger:
     """Build Wandb Logger
 
     Args:
