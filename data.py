@@ -4,6 +4,8 @@ import json
 import pickle
 from typing import Tuple
 from argparse import Namespace
+import random
+
 
 import torch
 from torch.utils.data import Dataset, DataLoader, random_split
@@ -21,7 +23,7 @@ class ESMDataset(Dataset):
             split (str): Split (train, val, test)
             args (Namespace): Args for ESMDataset. Must Contain:
                 - data_dir (str): Data Directory
-                - max_seq_len (int): Max Sequence Length
+                - max_seq_len (int): Max Sequence length
         """
         assert args.dataset_name in ["cath", "pdb"], "Invalid Dataset Name"
         with open(
@@ -41,10 +43,7 @@ class ESMDataset(Dataset):
         """
         data = []
         for item in self.data:
-            if (
-                len(item["seq"]) <= max_seq_len
-                and len(item["seq"]) >= min_seq_len
-            ):
+            if len(item["seq"]) <= max_seq_len and len(item["seq"]) >= min_seq_len:
                 data.append(item)
 
         # update the dataset
@@ -72,6 +71,79 @@ class ESMDataset(Dataset):
         return item["coords"].astype(np.float32), None, item["seq"]
 
 
+class ESMSampler(torch.utils.data.Sampler):
+    def __init__(self, data: ESMDataset, args: Namespace):
+        """ESMSampler
+
+        Args:
+            data (ESMDataset): Dataset
+            args (Namespace): Args. Must contain:
+                - batch_size (int): batch size
+                - bin_size (int): size of bin for Sampler
+        """
+        self.args = args
+        self.seq_len = [len(item["seq"]) for item in data]
+        self.bins_normal = self.create_bin(self.seq_len, self.args.sampler["bin_size"])
+
+    def __iter__(self):
+        bins = self.bins_normal
+
+        for key in bins:
+            random.shuffle(bins[key])
+
+        final_indices = []
+        index_current = 0
+        final_indices.append([])
+
+        # Splits the dataset by making list of Indexs by picking randomly
+
+        # The bin are first sorted in desending order
+        for key in sorted(bins.keys(), reverse=True):
+            # Indexes are picked from bins until the bin is empty or the required batch size is reached
+            for index in bins[key]:
+                # If the batch size is reached then new list is added and filled again
+                if len(final_indices[index_current]) == self.args.batch_size:
+                    final_indices.append([])
+                    index_current += 1
+                final_indices[index_current].append(index)
+
+        random.shuffle(final_indices)
+
+        return iter(final_indices)
+
+    def create_bin(self, data, bin_size):
+        """Creates Bins for sorting the data
+
+        Args:
+            data (list): dataset
+            bin_size (int): size of bin for sorting the data
+
+        Returns:
+            bin (Dict): container with indexes
+        """
+        max_len = max(data)
+        min_len = min(data)
+        bin = {}
+
+        # Value for First Bin
+        current = min_len + bin_size - 1
+
+        # Creating all bins(Dict)
+        while current < max_len:
+            bin[current] = []
+            current = current + bin_size
+        bin[max_len] = []
+
+        # Filling the indexs of dataset into Bin
+        for index in range(0, len(data)):
+            dict_index = (
+                (((data[index] - min_len) // bin_size) + 1) * bin_size + min_len - 1
+            )
+            bin[min(dict_index, max_len)].append(index)
+
+        return bin
+
+
 class ESMDataLoader(DataLoader):
     def __init__(
         self,
@@ -81,6 +153,7 @@ class ESMDataLoader(DataLoader):
         batch_size: int,
         shuffle: bool,
         num_workers: int,
+        sampler: ESMSampler,
         **kwargs,
     ):
         """ESM DataLoader
@@ -92,24 +165,32 @@ class ESMDataLoader(DataLoader):
             batch_size (int): Batch Size
             shuffle (bool): Shuffle
             num_workers (int): Number of Workers
+            sampler(ESMSampler): Sampler
         """
         self.esm2_alphabet = esm2_alphabet
         self.esm_if_alphabet = esm_if_alphabet
 
-        self.esm_if_batch_converter = util.CoordBatchConverter(
-            self.esm_if_alphabet
-        )
+        self.esm_if_batch_converter = util.CoordBatchConverter(self.esm_if_alphabet)
         self.esm2_batch_converter = self.esm2_alphabet.get_batch_converter()
 
         # self.collate_fn = util.CoordBatchConverter(alphabet)
 
-        super().__init__(
-            dataset=dataset,
-            batch_size=batch_size,
-            shuffle=shuffle,
-            num_workers=num_workers,
-            collate_fn=self.collate_fn,
-        )
+        if sampler is None:
+            super().__init__(
+                dataset=dataset,
+                batch_size=batch_size,
+                shuffle=shuffle,
+                num_workers=num_workers,
+                collate_fn=self.collate_fn,
+            )
+
+        else:
+            super().__init__(
+                dataset=dataset,
+                num_workers=num_workers,
+                batch_sampler=sampler,
+                collate_fn=self.collate_fn,
+            )
 
     def collate_fn(
         self, batch: list
@@ -172,9 +253,7 @@ class ESMDataLightning(LightningDataModule):
         self.esm2_alphabet = esm2_alphabet
         self.esm_if_alphabet = esm_if_alphabet
 
-        self.esm_if_batch_converter = util.CoordBatchConverter(
-            self.esm_if_alphabet
-        )
+        self.esm_if_batch_converter = util.CoordBatchConverter(self.esm_if_alphabet)
         self.esm2_batch_converter = self.esm2_alphabet.get_batch_converter()
         self.args = args
 
@@ -188,15 +267,32 @@ class ESMDataLightning(LightningDataModule):
         Args:
             stage (str): Stage. Either "fit" or "test"
         """
-
         if stage == "fit":
             self.train_dataset = ESMDataset(split="train", args=self.args)
             self.val_dataset = ESMDataset(split="val", args=self.args)
         else:
             self.test_dataset = ESMDataset(split="test", args=self.args)
 
+        if self.args.sampler["enabled"]:
+            if stage == "fit":
+                self.train_sampler = ESMSampler(
+                    data=self.train_dataset.data, args=self.args
+                )
+                self.val_sampler = ESMSampler(
+                    data=self.val_dataset.data, args=self.args
+                )
+            else:
+                self.test_sampler = ESMSampler(
+                    data=self.test_dataset.data, args=self.args
+                )
+        else:
+            self.train_sampler = None
+            self.val_sampler = None
+            self.test_sampler = None
+
     def train_dataloader(self) -> ESMDataLoader:
         assert self.train_dataset is not None, "Train Dataset is None"
+
         data_loader = ESMDataLoader(
             esm2_alphabet=self.esm2_alphabet,
             esm_if_alphabet=self.esm_if_alphabet,
@@ -204,6 +300,7 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.args.batch_size,
             shuffle=self.args.train_shuffle,
             num_workers=self.args.train_num_workers,
+            sampler=self.train_sampler,
         )
         return data_loader
 
@@ -216,6 +313,7 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.args.batch_size,
             shuffle=self.args.val_shuffle,
             num_workers=self.args.val_num_workers,
+            sampler=self.val_sampler,
         )
         return data_loader
 
@@ -228,6 +326,7 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.args.batch_size,
             shuffle=self.args.val_shuffle,
             num_workers=self.args.val_num_workers,
+            sampler=self.test_sampler,
         )
         return data_loader
 
@@ -244,9 +343,7 @@ class ESMDataLightning(LightningDataModule):
 
 
 class RemoteHomologyDataset(Dataset):
-    def __init__(
-        self, split: str, label_to_predict: str, data_dir: str
-    ) -> None:
+    def __init__(self, split: str, label_to_predict: str, data_dir: str) -> None:
         """Remote Homology Dataset
 
         Args:
@@ -266,9 +363,7 @@ class RemoteHomologyDataset(Dataset):
             "test_fold_holdout",
         ], f"Invalid Split: {split}"
 
-        with open(
-            path.join(data_dir, f"remote_homology/{split}.pkl"), "rb"
-        ) as f:
+        with open(path.join(data_dir, f"remote_homology/{split}.pkl"), "rb") as f:
             self.data = pickle.load(f)
 
         assert label_to_predict in [
@@ -347,9 +442,7 @@ class RemoteHomologyLightning(LightningDataModule):
         # Prepare input seqs for esm2 batch converter as mentioned in
         # the example here: https://github.com/facebookresearch/esm/blob/2b369911bb5b4b0dda914521b9475cad1656b2ac/README.md?plain=1#L176
         inp_seqs = [("", item[0]) for item in batch]
-        class_labels = torch.tensor(
-            [item[1] for item in batch], dtype=torch.long
-        )
+        class_labels = torch.tensor([item[1] for item in batch], dtype=torch.long)
 
         # Process ESM-2 ->
         _labels, _strs, tokens = self.esm2_batch_converter(inp_seqs)
@@ -362,9 +455,7 @@ class RemoteHomologyLightning(LightningDataModule):
         Returns:
             DataLoader: Train Dataloader
         """
-        assert (
-            self.train_dataset is not None
-        ), "Setup not called with fit stage"
+        assert self.train_dataset is not None, "Setup not called with fit stage"
         dataloader = DataLoader(
             dataset=self.train_dataset,
             batch_size=self.args.batch_size,
@@ -507,9 +598,7 @@ class StabilityLightning(LightningDataModule):
         # Prepare input seqs for esm2 batch converter as mentioned in
         # the example here: https://github.com/facebookresearch/esm/blob/2b369911bb5b4b0dda914521b9475cad1656b2ac/README.md?plain=1#L176
         inp_seqs = [("", item[0]) for item in batch]
-        stability_score = torch.tensor(
-            [item[1] for item in batch], dtype=torch.float32
-        )
+        stability_score = torch.tensor([item[1] for item in batch], dtype=torch.float32)
 
         # Process ESM-2 ->
         _labels, _strs, tokens = self.esm2_batch_converter(inp_seqs)
@@ -522,9 +611,7 @@ class StabilityLightning(LightningDataModule):
         Returns:
             DataLoader: Train Dataloader
         """
-        assert (
-            self.train_dataset is not None
-        ), "Setup not called with fit stage"
+        assert self.train_dataset is not None, "Setup not called with fit stage"
         dataloader = DataLoader(
             dataset=self.train_dataset,
             batch_size=self.args.batch_size,
@@ -559,9 +646,7 @@ class StabilityLightning(LightningDataModule):
         Returns:
             DataLoader: Test Dataloader
         """
-        assert (
-            self.test_dataset is not None
-        ), "Setup not called with test stage"
+        assert self.test_dataset is not None, "Setup not called with test stage"
 
         dataloader = DataLoader(
             dataset=self.test_dataset,
@@ -658,9 +743,7 @@ class FluoroscenceLightning(LightningDataModule):
         # Prepare input seqs for esm2 batch converter as mentioned in
         # the example here: https://github.com/facebookresearch/esm/blob/2b369911bb5b4b0dda914521b9475cad1656b2ac/README.md?plain=1#L176
         inp_seqs = [("", item[0]) for item in batch]
-        stability_score = torch.tensor(
-            [item[1] for item in batch], dtype=torch.float32
-        )
+        stability_score = torch.tensor([item[1] for item in batch], dtype=torch.float32)
 
         # Process ESM-2 ->
         _labels, _strs, tokens = self.esm2_batch_converter(inp_seqs)
@@ -673,9 +756,7 @@ class FluoroscenceLightning(LightningDataModule):
         Returns:
             DataLoader: Train Dataloader
         """
-        assert (
-            self.train_dataset is not None
-        ), "Setup not called with fit stage"
+        assert self.train_dataset is not None, "Setup not called with fit stage"
         dataloader = DataLoader(
             dataset=self.train_dataset,
             batch_size=self.args.batch_size,
@@ -710,9 +791,7 @@ class FluoroscenceLightning(LightningDataModule):
         Returns:
             DataLoader: Test Dataloader
         """
-        assert (
-            self.test_dataset is not None
-        ), "Setup not called with test stage"
+        assert self.test_dataset is not None, "Setup not called with test stage"
 
         dataloader = DataLoader(
             dataset=self.test_dataset,
