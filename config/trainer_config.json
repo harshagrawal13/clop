@@ -46,7 +46,7 @@
         "epochs": 10,
         "log_every_n_steps": 20,
         "enable_progress_bar": false,
-        "val_check_interval": 0.2,
+        "val_check_interval": 1000,
         "check_val_every_n_epoch": 1,
         "limit_train_batches": null,
         "limit_val_batches": null,
