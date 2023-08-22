@@ -161,6 +161,17 @@ class JESPR(pl.LightningModule):
         else:
             return optimizer
 
+    @staticmethod
+    def num_params(model: nn.Module) -> int:
+        """Calculate the number of parameters
+
+        Args:
+            model (nn.Module): PyTorch Model
+        Returns:
+            int: Total Number of params
+        """
+        return sum(p.numel() for p in model.parameters() if p.requires_grad)
+
 
 class JESPR_RH(pl.LightningModule):
     def __init__(
