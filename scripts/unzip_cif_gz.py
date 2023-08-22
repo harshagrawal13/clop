@@ -8,7 +8,7 @@ rsync.rcsb.org::ftp_data/structures/divided/mmCIF/ ./mmCIF
 Other download alternatives are present here: https://www.wwpdb.org/ftp/pdb-ftp-sites
 """
 
-# PUT THIS FILE IN THE BASE DIRECTORY OF THIS REPOSITORY. 
+# PUT THIS FILE IN THE BASE DIRECTORY OF THIS REPOSITORY.
 
 import os
 import gzip
@@ -27,15 +27,14 @@ for subdir in subdirs:
         if file[-3:] == ".gz":
             try:
                 complete_file_path = os.path.join(complete_dir, file)
-                with gzip.open(complete_file_path, 'rb') as f_in:
-                    with open(complete_file_path[:-3], 'wb') as f_out:
+                with gzip.open(complete_file_path, "rb") as f_in:
+                    with open(complete_file_path[:-3], "wb") as f_out:
                         shutil.copyfileobj(f_in, f_out)
-                
+
                 # Delete the .gz files after unzipping
                 os.remove(complete_file_path)
-            
+
             except Exception as e:
                 # Some files are corrupted and cannot be unzipped
                 print(e)
                 print(file)
-            

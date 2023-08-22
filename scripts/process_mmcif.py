@@ -61,9 +61,7 @@ def main(save_every=2000):
         expand_dir = sorted(os.listdir(complete_dir))
 
         all_file_paths = [
-            os.path.join(complete_dir, f)
-            for f in expand_dir
-            if f.endswith(".cif")
+            os.path.join(complete_dir, f) for f in expand_dir if f.endswith(".cif")
         ]
 
         for file in all_file_paths:

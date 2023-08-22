@@ -70,8 +70,7 @@ def visualize_logits(self, layers: list) -> None:
         #   if isinstance(layer, Tanh):
         t = layer[1]
         print(
-            "layer {%d (%10s)}: mean %+.2f, std %.2f"
-            % (i, layer[0], t.mean(), t.std())
+            "layer {%d (%10s)}: mean %+.2f, std %.2f" % (i, layer[0], t.mean(), t.std())
         )
         hy, hx = torch.histogram(t, density=True)
         plt.plot(hx[:-1].detach(), hy.detach())
@@ -159,11 +158,7 @@ class SequenceEncoder(ESM2):
             mask_ratio_observed = (tokens == self.mask_idx).sum(-1).to(
                 x.dtype
             ) / src_lengths
-            x = (
-                x
-                * (1 - mask_ratio_train)
-                / (1 - mask_ratio_observed)[:, None, None]
-            )
+            x = x * (1 - mask_ratio_train) / (1 - mask_ratio_observed)[:, None, None]
 
         if padding_mask is not None:
             x = x * (1 - padding_mask.unsqueeze(-1).type_as(x))
@@ -190,9 +185,7 @@ class SequenceEncoder(ESM2):
                 batch_padding_lens = torch.tensor(T).expand(B)
             else:
                 batch_padding_lens = (~padding_mask).sum(-1)
-            pool_tokens = return_mean_of_token_embeddings(
-                x, batch_padding_lens
-            )
+            pool_tokens = return_mean_of_token_embeddings(x, batch_padding_lens)
         elif self.token_pool_strategy == "bos":
             pool_tokens = x[:, 0]
 
@@ -279,9 +272,7 @@ class StructureEncoder(GVPTransformerEncoder):
 
         if self.token_pool_strategy == "mean":
             batch_padding_lens = (~encoder_padding_mask).sum(-1)
-            pool_tokens = return_mean_of_token_embeddings(
-                x, batch_padding_lens
-            )
+            pool_tokens = return_mean_of_token_embeddings(x, batch_padding_lens)
         else:
             pool_tokens = x[:, 0]  # B * C
 
@@ -316,9 +307,7 @@ class WeightedLayerPooling(nn.Module):
                 eos: take the last token embedding in a batch.
         """
         super().__init__()
-        self.layer_weights = nn.Parameter(
-            torch.tensor([1.0] * (pool_last_n_layers))
-        )
+        self.layer_weights = nn.Parameter(torch.tensor([1.0] * (pool_last_n_layers)))
 
     def forward(
         self,
@@ -431,9 +420,9 @@ def return_mean_of_token_embeddings(
         if tokens_len <= 2:
             pooled_token_embeddings[i] = token_embeddings[i, 1]
         else:
-            pooled_token_embeddings[i] = token_embeddings[
-                i, 1 : tokens_len - 1
-            ].mean(dim=0)
+            pooled_token_embeddings[i] = token_embeddings[i, 1 : tokens_len - 1].mean(
+                dim=0
+            )
     return pooled_token_embeddings
 
 

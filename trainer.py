@@ -47,9 +47,9 @@ def build_callbacks(callback_args: dict) -> list:
                 annealing_epochs=callback_args["stochastic_weight_averaging"][
                     "annealing_epochs"
                 ],
-                annealing_strategy=callback_args[
-                    "stochastic_weight_averaging"
-                ]["annealing_strategy"],
+                annealing_strategy=callback_args["stochastic_weight_averaging"][
+                    "annealing_strategy"
+                ],
             )
         )
 
@@ -60,9 +60,7 @@ def build_callbacks(callback_args: dict) -> list:
                 logging_interval=callback_args["learning_rate_monitor"][
                     "logging_interval"
                 ],
-                log_momentum=callback_args["learning_rate_monitor"][
-                    "log_momentum"
-                ],
+                log_momentum=callback_args["learning_rate_monitor"]["log_momentum"],
             )
         )
 
@@ -126,9 +124,7 @@ def main(args, mode="train"):
     precision = args["trainer"]["precision"]
     devices = args["trainer"]["devices"]
     epochs = args["trainer"]["epochs"]
-    log_every_n_steps = args["trainer"][
-        "log_every_n_steps"
-    ]  # batch steps not epochs
+    log_every_n_steps = args["trainer"]["log_every_n_steps"]  # batch steps not epochs
     enable_progress_bar = args["trainer"]["enable_progress_bar"]
     val_check_interval = args["trainer"]["val_check_interval"]  # epochs
     check_val_every_n_epoch = args["trainer"]["check_val_every_n_epoch"]
@@ -231,9 +227,7 @@ if __name__ == "__main__":
         "-f",
         "--config_path",
         type=str,
-        default=path.join(
-            path.dirname(__file__), "config/trainer_config.json"
-        ),
+        default=path.join(path.dirname(__file__), "config/trainer_config.json"),
         help="Path for the Train Config Json File",
     )
 

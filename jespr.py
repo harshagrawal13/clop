@@ -71,9 +71,7 @@ class JESPR(pl.LightningModule):
         logits_per_structure = logit_scale * seq_repr @ struct_repr.T
         logits_per_seq = logits_per_structure.T
 
-        labels = torch.arange(
-            B, dtype=torch.long, device=logits_per_structure.device
-        )
+        labels = torch.arange(B, dtype=torch.long, device=logits_per_structure.device)
 
         loss = (
             torch.nn.functional.cross_entropy(logits_per_structure, labels)
@@ -120,12 +118,8 @@ class JESPR(pl.LightningModule):
     def on_train_batch_end(self, outputs, batch, batch_idx):
         argmax_acc = self.calc_argmax_acc(outputs["logits"])
         B = batch[0].shape[0]
-        self.log(
-            "metrics/train/acc_structure", argmax_acc["acc_str"], batch_size=B
-        )
-        self.log(
-            "metrics/train/acc_sequence", argmax_acc["acc_seq"], batch_size=B
-        )
+        self.log("metrics/train/acc_structure", argmax_acc["acc_str"], batch_size=B)
+        self.log("metrics/train/acc_sequence", argmax_acc["acc_seq"], batch_size=B)
 
     def validation_step(self, batch, batch_idx):
         start_time = time.time()
@@ -142,12 +136,8 @@ class JESPR(pl.LightningModule):
     def on_validation_batch_end(self, outputs, batch, batch_idx):
         argmax_acc = self.calc_argmax_acc(outputs["logits"])
         B = batch[0].shape[0]
-        self.log(
-            "metrics/val/acc_structure", argmax_acc["acc_str"], batch_size=B
-        )
-        self.log(
-            "metrics/val/acc_sequence", argmax_acc["acc_seq"], batch_size=B
-        )
+        self.log("metrics/val/acc_structure", argmax_acc["acc_str"], batch_size=B)
+        self.log("metrics/val/acc_sequence", argmax_acc["acc_seq"], batch_size=B)
 
     def configure_optimizers(self) -> torch.optim.Adam:
         """Return Optimizer
