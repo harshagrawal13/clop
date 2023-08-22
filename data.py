@@ -86,7 +86,7 @@ class ESMSampler(torch.utils.data.Sampler):
         """
         self.args = args
         self.seq_len = [len(item["seq"]) for item in data]
-        self.bins_normal = self.create_bin(self.seq_len, self.args.bin_size)
+        self.bins_normal = self.create_bin(self.seq_len, self.args.sampler["bin_size"])
 
     def __iter__(self):
         bins = self.bins_normal
@@ -179,7 +179,7 @@ class ESMDataLoader(DataLoader):
 
         # self.collate_fn = util.CoordBatchConverter(alphabet)
 
-        if sampler == None:
+        if sampler is None:
             
             super().__init__(
                 dataset=dataset,
@@ -282,7 +282,7 @@ class ESMDataLightning(LightningDataModule):
         else:
             self.test_dataset = ESMDataset(split="test", args=self.args)
             
-        if self.args.sampler:
+        if self.args.sampler["enabled"]:
             if stage == "fit":
                 self.train_sampler = ESMSampler(data=self.train_dataset.data,args=self.args)
                 self.val_sampler = ESMSampler(data=self.val_dataset.data,args=self.args)

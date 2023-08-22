@@ -28,13 +28,15 @@
         "data_dir": "data/",
         "max_seq_len": 500,
         "min_seq_len": 20,
-        "batch_size": 8,
+        "batch_size": 64,
         "train_shuffle": true,
         "train_num_workers": 1,
         "val_shuffle": false,
         "val_num_workers": 1,
-        "sampler": true,
-        "bin_size": 8
+        "sampler": {
+            "enabled": true,
+            "bin_size": 8
+        }
     },
     "trainer": {
         "accelerator": "gpu",
@@ -44,7 +46,7 @@
         "epochs": 10,
         "log_every_n_steps": 20,
         "enable_progress_bar": false,
-        "val_check_interval": 1,
+        "val_check_interval": 0.2,
         "check_val_every_n_epoch": 1,
         "limit_train_batches": null,
         "limit_val_batches": null,
@@ -90,7 +92,7 @@
             "eps": 1e-8
         },
         "scheduler": {
-            "type": null,
+            "type": "cyclic_lr",
             "base_lr": 1e-5,
             "max_lr": 1e-3,
             "mode": "triangular2"
