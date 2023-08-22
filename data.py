@@ -72,76 +72,68 @@ class ESMDataset(Dataset):
 
 
 class ESMSampler(torch.utils.data.Sampler):
-    def __init__(self, data: ESMDataset, args: Namespace):
-        """ESMSampler
+    def __init__(self, data: list, args: Namespace):
+        """ESM Sampler
 
         Args:
-            data (ESMDataset): Dataset
-            args (Namespace): Args. Must contain:
-                - batch_size (int): batch size
-                - bin_size (int): size of bin for Sampler
+            data (list): Data from ESMDataset.data
+            args (Namespace): Namespace containing the following args:
+                - sampler (dict): Sampler args. Must contain: bin_size
+                - min_seq_len (int): Minimum Sequence Length
+                - max_seq_len (int): Maximum Sequence Length
+                - batch_size (int): Batch Size
         """
+        self.data = data
         self.args = args
-        self.seq_len = [len(item["seq"]) for item in data]
-        self.bins_normal = self.create_bin(self.seq_len, self.args.sampler["bin_size"])
 
-    def __iter__(self):
-        bins = self.bins_normal
-
-        for key in bins:
-            random.shuffle(bins[key])
-
-        final_indices = []
-        index_current = 0
-        final_indices.append([])
-
-        # Splits the dataset by making list of Indexs by picking randomly
-
-        # The bin are first sorted in desending order
-        for key in sorted(bins.keys(), reverse=True):
-            # Indexes are picked from bins until the bin is empty or the required batch size is reached
-            for index in bins[key]:
-                # If the batch size is reached then new list is added and filled again
-                if len(final_indices[index_current]) == self.args.batch_size:
-                    final_indices.append([])
-                    index_current += 1
-                final_indices[index_current].append(index)
-
-        random.shuffle(final_indices)
-
-        return iter(final_indices)
-
-    def create_bin(self, data, bin_size):
-        """Creates Bins for sorting the data
-
-        Args:
-            data (list): dataset
-            bin_size (int): size of bin for sorting the data
+    def create_bins(self) -> dict:
+        """Creates bin of data indices based on bin_size
 
         Returns:
-            bin (Dict): container with indexes
+            dict: Data indices mapped to different bins based on the data seq length
         """
-        max_len = max(data)
-        min_len = min(data)
-        bin = {}
+        bin_size = self.args.sampler["bin_size"]
+        bins = {
+            i: [] for i in range(self.args.min_seq_len, self.args.max_seq_len, bin_size)
+        }
 
-        # Value for First Bin
-        current = min_len + bin_size - 1
+        data_lens = [len(item["seq"]) for item in self.data]
+        for data_idx, data_len in enumerate(data_lens):
+            for bin_idx in list(bins.keys()):
+                if data_len >= bin_idx and data_len < bin_idx + bin_size:
+                    bins[bin_idx].append(data_idx)
+                    break
 
-        # Creating all bins(Dict)
-        while current < max_len:
-            bin[current] = []
-            current = current + bin_size
-        bin[max_len] = []
+        for bin_idx in list(bins.keys()):
+            random.shuffle(bins[bin_idx])
+        return bins
 
-        # Filling the indexs of dataset into Bin
-        for index in range(0, len(data)):
-            dict_index = (
-                (((data[index] - min_len) // bin_size) + 1) * bin_size + min_len - 1
-            )
-            bin[min(dict_index, max_len)].append(index)
+    def __iter__(self) -> list:
+        """Returns an iterator over the dataset
 
-        return bin
+        Returns:
+            list: List of indices for all batches
+        """
+        batch_size = self.args.batch_size
+
+        bins = self.create_bins()
+        bins_flattened = []
+        for _, bin_items in bins.items():
+            bins_flattened += bin_items
+        all_batches = [
+            bins_flattened[i : i + batch_size]
+            for i in range(0, len(bins_flattened), batch_size)
+        ]
+        random.shuffle(all_batches)
+        return iter(all_batches)
+
+    def __len__(self) -> int:
+        """Returns the length of the dataset
+
+        Returns:
+            _type_: _description_
+        """
+        return len(self.data) // self.args.batch_size + 1
 
 
 class ESMDataLoader(DataLoader):
