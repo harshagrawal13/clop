@@ -92,10 +92,12 @@
             "eps": 1e-8
         },
         "scheduler": {
-            "type": "cyclic_lr",
-            "base_lr": 1e-5,
-            "max_lr": 1e-3,
-            "mode": "triangular2"
+            "type": "warmup_cosine_schedule",
+            "warmup_steps": 1000,
+            "start_lr": 1e-6,
+            "ref_lr": 1e-3,
+            "T_max": 10000,
+            "final_lr": 0.0
         }
     },
     "logger": {

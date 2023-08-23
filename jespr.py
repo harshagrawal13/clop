@@ -5,12 +5,12 @@ import scipy
 import torch
 import torch.nn as nn
 from torch.optim import Adam
-from torch.optim.lr_scheduler import CosineAnnealingLR, ExponentialLR, CyclicLR
 
 import lightning as pl
 
 from esm.data import Alphabet
 from modules import SequenceEncoder, StructureEncoder
+from modules import WarmupCosineSchedule
 
 DEFAULT_LR = 3e-4
 
@@ -149,17 +149,28 @@ class JESPR(pl.LightningModule):
         scheduler_params = self.optim_args["scheduler"]
 
         optimizer = Adam(self.parameters(), **optim_params)
-        if scheduler_params["type"] == "cyclic_lr":
-            scheduler = CyclicLR(
-                optimizer,
-                base_lr=scheduler_params["base_lr"],
-                max_lr=scheduler_params["max_lr"],
-                mode=scheduler_params["mode"],
+        if scheduler_params["type"] == "warmup_cosine_schedule":
+            scheduler = WarmupCosineSchedule(
+                optimizer=optimizer,
+                warmup_steps=scheduler_params["warmup_steps"],
+                start_lr=scheduler_params["start_lr"],
+                ref_lr=scheduler_params["ref_lr"],
+                T_max=scheduler_params["T_max"],
+                final_lr=scheduler_params["final_lr"],
             )
-
-            return {"optimizer": optimizer, "lr_scheduler": scheduler}
+            return {
+                "optimizer": optimizer,
+                "lr_scheduler": {
+                    "scheduler": scheduler,
+                    "interval": "step",
+                },
+            }
         else:
             return optimizer
+
+    def lr_scheduler_step(self, scheduler, metric):
+        """Override lr scheduler step due to custom scheduler"""
+        scheduler.step()
 
     @staticmethod
     def num_params(model: nn.Module) -> int:
