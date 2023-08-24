@@ -494,53 +494,50 @@ def load_structure_encoder(
     return structure_encoder, alphabet
 
 
-class WarmupCosineSchedule(object):
+class WarmupCosineFactorLambda(object):
     def __init__(
         self,
-        optimizer: torch.optim,
         warmup_steps: int,
-        start_lr: float,
-        ref_lr: float,
-        T_max: int,
-        final_lr=0.0,
-    ):
-        """WarmupCosineSchedule for Learning Rate Scheduling
-        Taken from i-JEPA Code Implementation
+        max_steps: int,
+        max_lr: float,
+        final_lr: float = 0.0,
+        eps: int = 1e-8,
+    ) -> None:
+        """Holds the lamda function for CosineSchedule with Warmup
+        for torch.optim.lr_scheduler.LambdaLR
 
         Args:
-            optimizer (torch.optim): Optimizer
-            warmup_steps (int): Warmup steps.
-            start_lr (float): Start Learning Rate.
-            ref_lr (float): Max Learning Rate.
-            T_max (int): Max Iterations
-            final_lr (float, optional): Final lR. Defaults to 0.0.
+            warmup_steps (int): Warmup steps
+            max_lr (float): Start Learning Rate
+            max_steps (int): Max iterations per epoch
+            final_lr (float, optional): Final Learning Rate. Defaults to 0.0.
         """
-        self.optimizer = optimizer
-        self.start_lr = start_lr
-        self.ref_lr = ref_lr
-        self.final_lr = final_lr
         self.warmup_steps = warmup_steps
-        self.T_max = T_max - warmup_steps
-        self._step = 0.0
+        self.max_steps = max_steps
+        assert (
+            self.warmup_steps < self.max_steps
+        ), "Warmup steps must be less than max_steps"
 
-    def step(self):
-        self._step += 1
-        if self._step < self.warmup_steps:
-            progress = float(self._step) / float(max(1, self.warmup_steps))
-            new_lr = self.start_lr + progress * (self.ref_lr - self.start_lr)
+        # self.max_lr = max_lr
+        self.final_lr_factor = final_lr / max_lr
+        self.eps = eps
+
+    def compute_lr_factor(self, step: int) -> float:
+        if step < self.warmup_steps:
+            progress = float(step) / float(max(1, self.warmup_steps))
+            lr_factor = progress + self.eps
         else:
-            # -- progress after warmup
-            progress = float(self._step - self.warmup_steps) / float(max(1, self.T_max))
-
-            new_lr = max(
-                self.final_lr,
-                self.final_lr
-                + (self.ref_lr - self.final_lr)
-                * 0.5
-                * (1.0 + math.cos(math.pi * progress)),
+            if int(step / self.max_steps) < 1:
+                progress = float(step - self.warmup_steps) / float(
+                    max(1, self.max_steps - self.warmup_steps)
+                )
+            else:
+                progress = float(step) / float(max(1, self.max_steps))
+            lr_factor = max(
+                self.final_lr_factor,
+                self.final_lr_factor
+                + 0.5
+                * (1 - self.final_lr_factor)
+                * (1.0 + (math.cos(math.pi * progress))),
             )
-
-        for group in self.optimizer.param_groups:
-            group["lr"] = new_lr
-
-        return new_lr
+        return lr_factor

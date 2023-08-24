@@ -5,12 +5,13 @@ import scipy
 import torch
 import torch.nn as nn
 from torch.optim import Adam
+from torch.optim.lr_scheduler import LambdaLR
 
 import lightning as pl
 
 from esm.data import Alphabet
 from modules import SequenceEncoder, StructureEncoder
-from modules import WarmupCosineSchedule
+from modules import WarmupCosineFactorLambda
 
 DEFAULT_LR = 3e-4
 
@@ -150,18 +151,22 @@ class JESPR(pl.LightningModule):
 
         optimizer = Adam(self.parameters(), **optim_params)
         if scheduler_params["type"] == "warmup_cosine_schedule":
-            scheduler = WarmupCosineSchedule(
-                optimizer=optimizer,
+            self.scheduler_lamba = WarmupCosineFactorLambda(
                 warmup_steps=scheduler_params["warmup_steps"],
-                start_lr=scheduler_params["start_lr"],
-                ref_lr=scheduler_params["ref_lr"],
-                T_max=scheduler_params["T_max"],
+                max_steps=scheduler_params["max_steps"],
+                max_lr=scheduler_params["max_lr"],
                 final_lr=scheduler_params["final_lr"],
+                eps=scheduler_params["eps"],
+            )
+            lr_scheduler = LambdaLR(
+                optimizer=optimizer,
+                lr_lambda=self.scheduler_lamba.compute_lr_factor,
+                verbose=scheduler_params["verbose"],
             )
             return {
                 "optimizer": optimizer,
                 "lr_scheduler": {
-                    "scheduler": scheduler,
+                    "scheduler": lr_scheduler,
                     "interval": "step",
                 },
             }

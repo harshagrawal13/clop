@@ -93,11 +93,12 @@
         },
         "scheduler": {
             "type": "warmup_cosine_schedule",
-            "warmup_steps": 1000,
-            "start_lr": 1e-6,
-            "ref_lr": 1e-3,
-            "T_max": 10000,
-            "final_lr": 0.0
+            "warmup_steps": 2000,
+            "max_steps": 10000,
+            "max_lr": 1e-3,
+            "final_lr": 1e-6,
+            "eps": 0.0,
+            "verbose": true
         }
     },
     "logger": {
