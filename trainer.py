@@ -205,6 +205,7 @@ def main(args, mode="train"):
 
     # Wandb object only available to rank 0
     if trainer.global_rank == 0:
+        args["num_params"] = jespr.num_params(jespr)
         # Add all config params
         wandb_logger.experiment.config.update(args)
 
