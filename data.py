@@ -71,9 +71,9 @@ class ESMDataset(Dataset):
         return item["coords"].astype(np.float32), None, item["seq"]
 
 
-class ESMSampler(torch.utils.data.Sampler):
+class ESMBatchSampler(torch.utils.data.BatchSampler):
     def __init__(self, data: list, args: Namespace):
-        """ESM Sampler
+        """ESM Batch Sampler
 
         Args:
             data (list): Data from ESMDataset.data
@@ -85,6 +85,9 @@ class ESMSampler(torch.utils.data.Sampler):
         """
         self.data = data
         self.args = args
+        self.batch_size = self.args.batch_size
+        self.bins = self.create_bins()
+        self.batches = self.create_batches()
 
     def create_bins(self) -> dict:
         """Creates bin of data indices based on bin_size
@@ -108,32 +111,23 @@ class ESMSampler(torch.utils.data.Sampler):
             random.shuffle(bins[bin_idx])
         return bins
 
-    def __iter__(self) -> list:
-        """Returns an iterator over the dataset
-
-        Returns:
-            list: List of indices for all batches
-        """
-        batch_size = self.args.batch_size
-
-        bins = self.create_bins()
+    def create_batches(self):
         bins_flattened = []
-        for _, bin_items in bins.items():
+        for _, bin_items in self.bins.items():
             bins_flattened += bin_items
         all_batches = [
-            bins_flattened[i : i + batch_size]
-            for i in range(0, len(bins_flattened), batch_size)
+            bins_flattened[i : i + self.batch_size]
+            for i in range(0, len(bins_flattened), self.batch_size)
         ]
         random.shuffle(all_batches)
-        return iter(all_batches)
+        return all_batches
 
-    def __len__(self) -> int:
-        """Returns the length of the dataset
+    def __iter__(self):
+        for batch in self.batches:
+            yield batch
 
-        Returns:
-            _type_: _description_
-        """
-        return len(self.data) // self.args.batch_size + 1
+    def __len__(self):
+        return len(self.batches)
 
 
 class ESMDataLoader(DataLoader):
@@ -145,7 +139,7 @@ class ESMDataLoader(DataLoader):
         batch_size: int,
         shuffle: bool,
         num_workers: int,
-        sampler: ESMSampler,
+        batch_sampler: ESMBatchSampler,
         **kwargs,
     ):
         """ESM DataLoader
@@ -165,9 +159,7 @@ class ESMDataLoader(DataLoader):
         self.esm_if_batch_converter = util.CoordBatchConverter(self.esm_if_alphabet)
         self.esm2_batch_converter = self.esm2_alphabet.get_batch_converter()
 
-        # self.collate_fn = util.CoordBatchConverter(alphabet)
-
-        if sampler is None:
+        if batch_sampler is None:
             super().__init__(
                 dataset=dataset,
                 batch_size=batch_size,
@@ -180,7 +172,7 @@ class ESMDataLoader(DataLoader):
             super().__init__(
                 dataset=dataset,
                 num_workers=num_workers,
-                batch_sampler=sampler,
+                batch_sampler=batch_sampler,
                 collate_fn=self.collate_fn,
             )
 
@@ -267,14 +259,14 @@ class ESMDataLightning(LightningDataModule):
 
         if self.args.sampler["enabled"]:
             if stage == "fit":
-                self.train_sampler = ESMSampler(
+                self.train_sampler = ESMBatchSampler(
                     data=self.train_dataset.data, args=self.args
                 )
-                self.val_sampler = ESMSampler(
+                self.val_sampler = ESMBatchSampler(
                     data=self.val_dataset.data, args=self.args
                 )
             else:
-                self.test_sampler = ESMSampler(
+                self.test_sampler = ESMBatchSampler(
                     data=self.test_dataset.data, args=self.args
                 )
         else:
@@ -292,7 +284,7 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.args.batch_size,
             shuffle=self.args.train_shuffle,
             num_workers=self.args.train_num_workers,
-            sampler=self.train_sampler,
+            batch_sampler=self.train_sampler,
         )
         return data_loader
 
@@ -305,7 +297,7 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.args.batch_size,
             shuffle=self.args.val_shuffle,
             num_workers=self.args.val_num_workers,
-            sampler=self.val_sampler,
+            batch_sampler=self.val_sampler,
         )
         return data_loader
 
@@ -318,7 +310,7 @@ class ESMDataLightning(LightningDataModule):
             batch_size=self.args.batch_size,
             shuffle=self.args.val_shuffle,
             num_workers=self.args.val_num_workers,
-            sampler=self.test_sampler,
+            batch_sampler=self.test_sampler,
         )
         return data_loader
 
