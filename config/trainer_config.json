@@ -98,11 +98,11 @@
             "max_lr": 1e-3,
             "final_lr": 1e-6,
             "eps": 0.0,
-            "verbose": true
+            "verbose": false
         }
     },
     "logger": {
-        "project_name": "jespr_config_new",
+        "project_name": "uncategorized",
         "run_name": null,
         "logs_dir": "logs/"
     }
