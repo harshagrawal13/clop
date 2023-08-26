@@ -13,7 +13,7 @@
         },
         "structure_encoder": {
             "gvp_node_hidden_dim_scalar": 100,
-            "gvp_node_hidden_dim_vector":16,
+            "gvp_node_hidden_dim_vector": 16,
             "encoder_layers": 2,
             "layer_pool_strategy": null,
             "pool_last_n_layers": null,
@@ -85,10 +85,7 @@
         "optim_args": {
             "lr": 3e-4,
             "weight_decay": 0.01,
-            "betas": [
-                0.9,
-                0.999
-            ],
+            "betas": [0.9, 0.999],
             "eps": 1e-8
         },
         "scheduler": {
