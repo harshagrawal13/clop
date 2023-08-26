@@ -48,6 +48,7 @@ class JESPR_Regression(pl.LightningModule):
         loss = self.mse_loss_fn(y_pred, y)
         return loss, y_pred, y
 
+    @staticmethod
     @torch.no_grad()
     def spearmanr(target: np.array, prediction: np.array) -> float:
         """Spearman R correlation.
@@ -90,14 +91,15 @@ class JESPR_Regression(pl.LightningModule):
         # Only calculate Spearman R correlation on train batch if specified
         if self.acc_metric_on_train_batch:
             spearman_r = self.spearmanr(
-                outputs["y"].detach().numpy(),
-                outputs["y_pred"].detach().numpy(),
+                outputs["y"].detach().cpu().numpy(),
+                outputs["y_pred"].detach().cpu().numpy(),
             )
             self.log("metrics/train/spearman_r", spearman_r)
 
     def on_validation_batch_end(self, outputs, batch, batch_idx):
         spearman_r = self.spearmanr(
-            outputs["y"].detach().numpy(), outputs["y_pred"].detach().numpy()
+            outputs["y"].detach().cpu().numpy(),
+            outputs["y_pred"].detach().cpu().numpy(),
         )
         self.log("metrics/val/spearman_r", spearman_r)
 

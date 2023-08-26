@@ -5,6 +5,7 @@ from argparse import Namespace
 
 
 import torch
+from esm.data import Alphabet
 from torch.utils.data import Dataset, DataLoader
 from lightning.pytorch.core import LightningDataModule
 
@@ -47,10 +48,16 @@ class StabilityDataset(Dataset):
 
 
 class StabilityLightning(LightningDataModule):
-    def __init__(self, args: Namespace) -> None:
+    def __init__(self, esm2_alphabet: Alphabet, args: Namespace) -> None:
+        """Definite Stability Lightning module
+
+        Args:
+            esm2_alphabet (Alphabet): ESM2 Alphabet for batch_converter
+            args (Namespace): Args
+        """
         super().__init__()
         self.args = args
-        self.esm2_batch_converter = args.esm2_alphabet.get_batch_converter()
+        self.esm2_batch_converter = esm2_alphabet.get_batch_converter()
 
     def prepare_data(self):
         pass
