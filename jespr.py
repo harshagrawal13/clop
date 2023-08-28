@@ -126,19 +126,30 @@ class JESPR(pl.LightningModule):
         start_time = time.time()
         B = batch[0].shape[0]
         loss, logits = self.forward(batch)
-        self.log("metrics/val/loss", loss, batch_size=B)
+        self.log("metrics/val/loss", loss, batch_size=B, sync_dist=True)
         self.log(
             "metrics/val/time_per_step",
             time.time() - start_time,
             batch_size=B,
+            sync_dist=True,
         )
         return {"loss": loss, "logits": logits}
 
     def on_validation_batch_end(self, outputs, batch, batch_idx):
         argmax_acc = self.calc_argmax_acc(outputs["logits"])
         B = batch[0].shape[0]
-        self.log("metrics/val/acc_structure", argmax_acc["acc_str"], batch_size=B)
-        self.log("metrics/val/acc_sequence", argmax_acc["acc_seq"], batch_size=B)
+        self.log(
+            "metrics/val/acc_structure",
+            argmax_acc["acc_str"],
+            batch_size=B,
+            sync_dist=True,
+        )
+        self.log(
+            "metrics/val/acc_sequence",
+            argmax_acc["acc_seq"],
+            batch_size=B,
+            sync_dist=True,
+        )
 
     def configure_optimizers(self) -> torch.optim.Adam:
         """Return Optimizer
