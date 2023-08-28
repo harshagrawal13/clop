@@ -139,20 +139,19 @@ def main(args, mode="train"):
     callback_args = args["trainer"]["callbacks"]
     callbacks = build_callbacks(callback_args)
 
-    ckpt_path = (
-        listdir(
-            path.join(
-                logger_args["logs_dir"],
-                logger_args["project_name"],
-                checkpoint_id,
-            )
-        )[-1]
-        if checkpoint_id
-        else None
-    )
-
     # ___________ Logger ______________________________ #
     logger_args = args["logger"]
+
+    if checkpoint_id:
+        ckpt_dir = path.join(
+            logger_args["logs_dir"],
+            logger_args["project_name"],
+            checkpoint_id,
+            "checkpoints",
+        )
+        ckpt_path = path.join(ckpt_dir, listdir(ckpt_dir)[-1])
+    else:
+        ckpt_path = None
 
     seq_encoder, alphabet_2 = load_sequence_encoder(seq_encoder_args)
     struct_encoder, alphabet_if = load_structure_encoder(struct_encoder_args)
@@ -207,7 +206,7 @@ def main(args, mode="train"):
     if trainer.global_rank == 0:
         args["num_params"] = jespr.num_params(jespr)
         # Add all config params
-        wandb_logger.experiment.config.update(args)
+        wandb_logger.experiment.config.update(args, allow_val_change=True)
 
     if mode == "exp_with_trainer":
         return (jespr, esm_data_lightning, trainer, wandb_logger)
