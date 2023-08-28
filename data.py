@@ -8,7 +8,7 @@ import random
 
 
 import torch
-from torch.utils.data import Dataset, DataLoader, random_split
+from torch.utils.data import Dataset, DataLoader, SequentialSampler, DistributedSampler
 from lightning.pytorch.core import LightningDataModule
 
 from esm.inverse_folding import util
@@ -25,6 +25,7 @@ class ESMDataset(Dataset):
                 - data_dir (str): Data Directory
                 - max_seq_len (int): Max Sequence length
         """
+        self.args = args
         assert args.dataset_name in ["cath", "pdb"], "Invalid Dataset Name"
         with open(
             path.join(args.data_dir, f"{args.dataset_name}/{split}.pkl"), "rb"
@@ -72,7 +73,7 @@ class ESMDataset(Dataset):
 
 
 class ESMBatchSampler(torch.utils.data.BatchSampler):
-    def __init__(self, data: list, args: Namespace):
+    def __init__(self, sampler, batch_size, drop_last):
         """ESM Batch Sampler
 
         Args:
@@ -83,9 +84,15 @@ class ESMBatchSampler(torch.utils.data.BatchSampler):
                 - max_seq_len (int): Maximum Sequence Length
                 - batch_size (int): Batch Size
         """
-        self.data = data
-        self.args = args
-        self.batch_size = self.args.batch_size
+        if type(sampler) == SequentialSampler:
+            self.dataset = sampler.data_source
+        elif type(sampler) == DistributedSampler:
+            self.dataset = sampler.dataset
+
+        self.sampler = sampler
+        self.data = self.dataset.data
+        self.batch_size = batch_size
+        self.drop_last = drop_last
         self.bins = self.create_bins()
         self.batches = self.create_batches()
 
@@ -95,9 +102,12 @@ class ESMBatchSampler(torch.utils.data.BatchSampler):
         Returns:
             dict: Data indices mapped to different bins based on the data seq length
         """
-        bin_size = self.args.sampler["bin_size"]
+        bin_size = self.dataset.args.sampler["bin_size"]
         bins = {
-            i: [] for i in range(self.args.min_seq_len, self.args.max_seq_len, bin_size)
+            i: []
+            for i in range(
+                self.dataset.args.min_seq_len, self.dataset.args.max_seq_len, bin_size
+            )
         }
 
         data_lens = [len(item["seq"]) for item in self.data]
@@ -260,14 +270,20 @@ class ESMDataLightning(LightningDataModule):
         if self.args.sampler["enabled"]:
             if stage == "fit":
                 self.train_sampler = ESMBatchSampler(
-                    data=self.train_dataset.data, args=self.args
+                    sampler=SequentialSampler(self.train_dataset),
+                    batch_size=self.args.batch_size,
+                    drop_last=True,
                 )
                 self.val_sampler = ESMBatchSampler(
-                    data=self.val_dataset.data, args=self.args
+                    sampler=SequentialSampler(self.val_dataset),
+                    batch_size=self.args.batch_size,
+                    drop_last=True,
                 )
             else:
                 self.test_sampler = ESMBatchSampler(
-                    data=self.test_dataset.data, args=self.args
+                    sampler=SequentialSampler(self.test_dataset),
+                    batch_size=self.args.batch_size,
+                    drop_last=True,
                 )
         else:
             self.train_sampler = None
