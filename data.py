@@ -93,6 +93,7 @@ class ESMBatchSampler(torch.utils.data.BatchSampler):
         self.data = self.dataset.data
         self.batch_size = batch_size
         self.drop_last = drop_last
+
         self.bins = self.create_bins()
         self.batches = self.create_batches()
 
