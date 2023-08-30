@@ -177,7 +177,7 @@ class SequenceEncoder(ESM2):
                 )
         else:
             for layer in self.layers:
-                x = layer(
+                x, _ = layer(
                     x,
                     self_attn_padding_mask=padding_mask,
                     need_head_weights=False,
