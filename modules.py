@@ -7,6 +7,7 @@ import numpy as np
 import torch
 from torch import nn
 import torch.functional as F
+import torch.utils.checkpoint as checkpoint
 
 
 from esm import pretrained
@@ -14,6 +15,8 @@ from esm.inverse_folding.gvp_transformer import GVPTransformerModel
 from esm.inverse_folding.gvp_transformer_encoder import GVPTransformerEncoder
 from esm.model.esm2 import ESM2
 from esm.data import Alphabet
+from esm.inverse_folding.util import nan_to_num, get_rotation_frames, rotate, rbf
+from esm.inverse_folding.features import GVPInputFeaturizer
 
 SAVE_DIR = path.join(path.dirname(path.abspath(__file__)), "config")
 DEFAULT_JOINT_EMBEDDING_DIM = 512
@@ -136,12 +139,9 @@ class SequenceEncoder(ESM2):
         )
         self.after_proj_ln = nn.LayerNorm(args.joint_embedding_dim)
         self.after_proj_dropout = nn.Dropout(args.final_layer_dropout)
+        self.activation_checkpointing = args.activation_checkpointing
 
-    def forward(
-        self,
-        tokens: torch.tensor,
-        need_head_weights=False,
-    ):
+    def forward(self, tokens: torch.tensor):
         """
         Forward Function for Seq Encoder
         """
@@ -170,12 +170,18 @@ class SequenceEncoder(ESM2):
         if not padding_mask.any():
             padding_mask = None
 
-        for _, layer in enumerate(self.layers):
-            x, _ = layer(
-                x,
-                self_attn_padding_mask=padding_mask,
-                need_head_weights=need_head_weights,
-            )
+        if self.activation_checkpointing:
+            for layer in self.layers:
+                x, _ = checkpoint.checkpoint(
+                    layer.forward, x, None, padding_mask, False
+                )
+        else:
+            for layer in self.layers:
+                x = layer(
+                    x,
+                    self_attn_padding_mask=padding_mask,
+                    need_head_weights=False,
+                )
 
         x = self.emb_layer_norm_after(x)
         x = x.transpose(0, 1)
@@ -242,6 +248,7 @@ class StructureEncoder(GVPTransformerEncoder):
         )
         self.after_proj_ln = nn.LayerNorm(args.joint_embedding_dim)
         self.after_proj_dropout = nn.Dropout(args.final_layer_dropout)
+        self.activation_checkpointing = args.activation_checkpointing
 
     @classmethod
     def build_embedding(cls, dictionary, embed_dim):
@@ -252,13 +259,78 @@ class StructureEncoder(GVPTransformerEncoder):
         nn.init.constant_(emb.weight[padding_idx], 0)
         return emb
 
+    def forward_embedding_optimized(self, coords, padding_mask, confidence):
+        coord_mask = torch.all(torch.all(torch.isfinite(coords), dim=-1), dim=-1)
+        coords = nan_to_num(coords)
+
+        mask_tokens = (
+            padding_mask * self.dictionary.padding_idx
+            + ~padding_mask * self.dictionary.get_idx("<mask>")
+        )
+        # tokens
+        x = self.embed_tokens(mask_tokens) * self.embed_scale
+
+        # dihedrals
+        x = x + self.embed_dihedrals(coords)
+
+        if self.activation_checkpointing:
+            gvp_out_scalars, gvp_out_vectors = checkpoint.checkpoint(
+                self.gvp_encoder.forward, coords, coord_mask, padding_mask, confidence
+            )
+
+        else:
+            gvp_out_scalars, gvp_out_vectors = self.gvp_encoder(
+                coords, coord_mask, padding_mask, confidence
+            )
+
+        R = get_rotation_frames(coords)
+
+        x = x + self.embed_gvp_output(
+            torch.cat(
+                [
+                    gvp_out_scalars,
+                    rotate(gvp_out_vectors, R.transpose(-2, -1)).flatten(-2, -1),
+                ],
+                dim=-1,
+            )
+        )
+        x = x + self.embed_confidence(rbf(confidence, 0.0, 1.0))
+
+        scalar_features, vector_features = GVPInputFeaturizer.get_node_features(
+            coords, coord_mask, with_coord_mask=False
+        )
+        features = torch.cat(
+            [
+                scalar_features,
+                rotate(vector_features, R.transpose(-2, -1)).flatten(-2, -1),
+            ],
+            dim=-1,
+        )
+
+        x = self.dropout_module(
+            x
+            + self.embed_gvp_input_features(features)
+            + self.embed_positions(mask_tokens)
+        )
+        return x
+
     def forward(
         self,
-        coords,
-        encoder_padding_mask,
-        confidence,
-    ):
-        x, _ = self.forward_embedding(coords, encoder_padding_mask, confidence)
+        coords: torch.tensor,
+        encoder_padding_mask: torch.tensor,
+        confidence: torch.tensor,
+    ) -> torch.tensor:
+        """Forward function
+
+        Args:
+            coords (torch.tensor): Coords
+            encoder_padding_mask (torch.tensor): Padding Mask
+            confidence (torch.tensor): Confidence
+
+        Returns:
+            torch.tensor: Structure Representation Pooled.
+        """
+        x = self.forward_embedding_optimized(coords, encoder_padding_mask, confidence)
         # account for padding while computing the representation
         x = x * (1 - encoder_padding_mask.unsqueeze(-1).type_as(x))
 

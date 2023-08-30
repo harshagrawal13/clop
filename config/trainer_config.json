@@ -9,7 +9,8 @@
             "pool_last_n_layers": null,
             "token_pool_strategy": "mean",
             "layer_pool_weights": null,
-            "final_layer_dropout": 0.2
+            "final_layer_dropout": 0.2,
+            "activation_checkpointing": true
         },
         "structure_encoder": {
             "gvp_node_hidden_dim_scalar": 100,
@@ -19,7 +20,8 @@
             "pool_last_n_layers": null,
             "token_pool_strategy": "mean",
             "layer_pool_weights": null,
-            "final_layer_dropout": 0.2
+            "final_layer_dropout": 0.2,
+            "activation_checkpointing": true
         },
         "joint_embedding_dim": 256
     },
