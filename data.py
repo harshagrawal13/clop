@@ -26,7 +26,11 @@ class ESMDataset(Dataset):
                 - max_seq_len (int): Max Sequence length
         """
         self.args = args
-        assert args.dataset_name in ["cath", "pdb"], "Invalid Dataset Name"
+        assert args.dataset_name in [
+            "cath",
+            "pdb",
+            "pdb_extended",
+        ], "Invalid Dataset Name"
         with open(
             path.join(args.data_dir, f"{args.dataset_name}/{split}.pkl"), "rb"
         ) as f:
