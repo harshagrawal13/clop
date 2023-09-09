@@ -44,6 +44,7 @@
         "accelerator": "gpu",
         "precision": 32,
         "devices": 1,
+        "strategy": "auto",
         "num_nodes": 1,
         "epochs": 10,
         "log_every_n_steps": 20,
