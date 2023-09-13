@@ -390,7 +390,7 @@ class StructureEncoder(GVPTransformerEncoder):
         for name, param in self.named_parameters():
             if "encoder_layers" in name:
                 param.requires_grad = False
-            if "layers." not in name:
+            elif "layers." not in name:
                 param.requires_grad = False
             else:
                 break
