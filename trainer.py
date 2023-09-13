@@ -12,6 +12,7 @@ from lightning.pytorch.callbacks import (
 from lightning.pytorch.loggers import WandbLogger
 
 import torch
+from esm import pretrained, inverse_folding
 from data import ESMDataLightning
 from jespr import JESPR
 from modules import load_sequence_encoder, load_structure_encoder
@@ -95,6 +96,26 @@ def build_logger(logger_args: dict, checkpoint_id: str) -> WandbLogger:
     return wandb_logger
 
 
+def build_pretrained_model(pretrained_model_name: str, virgin_model: torch.nn.Module):
+    try:
+        model_loader_func = getattr(pretrained, pretrained_model_name)
+    except:
+        raise ValueError(f"Could not find {pretrained_model_name} in esm.pretrained")
+
+    pretrained_model, _ = model_loader_func()
+    if type(pretrained_model) == inverse_folding.gvp_transformer.GVPTransformerModel:
+        pretrained_model = pretrained_model.encoder
+
+    for name, param in pretrained_model.named_parameters():
+        if name in virgin_model.state_dict().keys():
+            try:
+                virgin_model.state_dict()[name].copy_(param)
+            except Exception as err:
+                print("Can't copy {} because of {}".format(name, err))
+        else:
+            print(f"Could not find {name} in both models. Skipping...")
+
+
 def main(args, mode="train"):
     """Parse all args and run training loop
 
@@ -156,6 +177,19 @@ def main(args, mode="train"):
 
     seq_encoder, alphabet_2 = load_sequence_encoder(seq_encoder_args)
     struct_encoder, alphabet_if = load_structure_encoder(struct_encoder_args)
+
+    if seq_encoder_args["pretrained"]["enabled"]:
+        print("Loading Pretrained Sequence Encoder...")
+        build_pretrained_model(
+            pretrained_model_name=seq_encoder_args["pretrained"]["model_name"],
+            virgin_model=seq_encoder,
+        )
+    if struct_encoder_args["pretrained"]["enabled"]:
+        print("Loading Pretrained Structure Encoder...")
+        build_pretrained_model(
+            pretrained_model_name=struct_encoder_args["pretrained"]["model_name"],
+            virgin_model=struct_encoder,
+        )
 
     print("Loading DataModule...")
     esm_data_lightning = ESMDataLightning(
