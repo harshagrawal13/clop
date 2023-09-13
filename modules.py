@@ -135,7 +135,7 @@ class SequenceEncoder(ESM2):
 
         # Project Sequence Embedding to Joint Embedding Space
         self.joint_embedding_projection = nn.Sequential(
-            nn.Linear(args.encoder_embed_dim, 4 * args.joint_embedding_dim),
+            nn.Linear(args.embed_dim, 4 * args.joint_embedding_dim),
             nn.Tanh(),
             nn.Linear(4 * args.joint_embedding_dim, args.joint_embedding_dim),
         )
