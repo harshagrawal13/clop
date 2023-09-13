@@ -191,6 +191,18 @@ def main(args, mode="train"):
             virgin_model=struct_encoder,
         )
 
+    # Freeze layers
+    if (
+        seq_encoder_args["freeze_first_n_layers"] > 0
+        and seq_encoder_args["freeze_first_n_layers"] is not None
+    ):
+        seq_encoder.freeze_layers(seq_encoder_args["freeze_first_n_layers"])
+    if (
+        struct_encoder_args["freeze_first_n_layers"] > 0
+        and seq_encoder_args["freeze_first_n_layers"] is not None
+    ):
+        struct_encoder.freeze_layers(struct_encoder_args["freeze_first_n_layers"])
+
     print("Loading DataModule...")
     esm_data_lightning = ESMDataLightning(
         esm2_alphabet=alphabet_2,

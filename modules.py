@@ -204,6 +204,22 @@ class SequenceEncoder(ESM2):
 
         return seq_projection
 
+    def freeze_layers(self, first_n_layers: int):
+        """Freeze first n layers of Sequence Encoder
+
+        Args:
+            first_n_layers (int): Number of layers to freeze
+        """
+        assert first_n_layers <= self.num_layers, "first_n_layers must be <= num_layers"
+        # freeze embed_tokens layer
+        self.embed_tokens.weight.requires_grad = False
+
+        # freeze first n layers
+        for i in range(first_n_layers):
+            for param in self.layers[i].parameters():
+                param.requires_grad = False
+        print(f"Froze first {first_n_layers} layers of sequence encoder")
+
 
 class StructureEncoder(GVPTransformerEncoder):
     def __init__(self, args: Namespace):
@@ -355,6 +371,29 @@ class StructureEncoder(GVPTransformerEncoder):
         structure_embedding = self.after_proj_ln(structure_embedding)
         structure_embedding = normalize_embeddings(structure_embedding)
         return structure_embedding
+
+    def freeze_layers(self, first_n_layers: int):
+        """Freeze first n layers of Sequence Encoder
+
+        Args:
+            first_n_layers (int): Number of layers to freeze
+        """
+        assert first_n_layers <= len(
+            self.layers
+        ), "first_n_layers must be <= len(self.layers)"
+
+        # freeze all layers before self.layers
+        for name, param in self.named_parameters():
+            if "layers." not in name:
+                param.requires_grad = False
+            else:
+                break
+
+        # freeze the first n layers in self.layers
+        for i in range(first_n_layers):
+            for param in self.layers[i].parameters():
+                param.requires_grad = False
+        print(f"Froze first {first_n_layers} layers of structure encoder")
 
 
 class WeightedLayerPooling(nn.Module):

@@ -14,7 +14,8 @@
             "token_pool_strategy": "mean",
             "layer_pool_weights": null,
             "final_layer_dropout": 0.2,
-            "activation_checkpointing": true
+            "activation_checkpointing": true,
+            "freeze_first_n_layers": 4
         },
         "structure_encoder": {
             "pretrained": {
@@ -29,7 +30,8 @@
             "token_pool_strategy": "mean",
             "layer_pool_weights": null,
             "final_layer_dropout": 0.2,
-            "activation_checkpointing": true
+            "activation_checkpointing": true,
+            "freeze_first_n_layers": 4
         },
         "joint_embedding_dim": 256
     },
