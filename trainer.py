@@ -12,7 +12,7 @@ from lightning.pytorch.callbacks import (
 from lightning.pytorch.loggers import WandbLogger
 
 import torch
-from esm import pretrained, inverse_folding
+from esm import pretrained, inverse_folding, ESM2
 from data import ESMDataLightning
 from jespr import JESPR
 from modules import load_sequence_encoder, load_structure_encoder
@@ -105,6 +105,10 @@ def build_pretrained_model(pretrained_model_name: str, virgin_model: torch.nn.Mo
     pretrained_model, _ = model_loader_func()
     if type(pretrained_model) == inverse_folding.gvp_transformer.GVPTransformerModel:
         pretrained_model = pretrained_model.encoder
+
+    if type(pretrained_model) == ESM2:
+        del pretrained_model.contact_head
+        del pretrained_model.lm_head
 
     for name, param in pretrained_model.named_parameters():
         if name in virgin_model.state_dict().keys():
