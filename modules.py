@@ -134,8 +134,10 @@ class SequenceEncoder(ESM2):
             )
 
         # Project Sequence Embedding to Joint Embedding Space
-        self.joint_embedding_projection = nn.Linear(
-            args.embed_dim, args.joint_embedding_dim
+        self.joint_embedding_projection = nn.Sequential(
+            nn.Linear(args.encoder_embed_dim, 4 * args.joint_embedding_dim),
+            nn.Tanh(),
+            nn.Linear(4 * args.joint_embedding_dim, args.joint_embedding_dim),
         )
         self.after_proj_ln = nn.LayerNorm(args.joint_embedding_dim)
         self.after_proj_dropout = nn.Dropout(args.final_layer_dropout)
@@ -259,8 +261,10 @@ class StructureEncoder(GVPTransformerEncoder):
             )
 
         # Joint Embedding Projection
-        self.joint_embedding_projection = nn.Linear(
-            args.encoder_embed_dim, args.joint_embedding_dim
+        self.joint_embedding_projection = nn.Sequential(
+            nn.Linear(args.encoder_embed_dim, 4 * args.joint_embedding_dim),
+            nn.Tanh(),
+            nn.Linear(4 * args.joint_embedding_dim, args.joint_embedding_dim),
         )
         self.after_proj_ln = nn.LayerNorm(args.joint_embedding_dim)
         self.after_proj_dropout = nn.Dropout(args.final_layer_dropout)
@@ -384,6 +388,8 @@ class StructureEncoder(GVPTransformerEncoder):
 
         # freeze all layers before self.layers
         for name, param in self.named_parameters():
+            if "encoder_layers" in name:
+                param.requires_grad = False
             if "layers." not in name:
                 param.requires_grad = False
             else:
