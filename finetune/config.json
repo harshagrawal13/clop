@@ -11,7 +11,8 @@
             "layer_pool_strategy": null,
             "pool_last_n_layers": null,
             "layer_pool_weights": null,
-            "joint_embedding_dim": 256
+            "joint_embedding_dim": 256,
+            "activation_checkpointing": true
         },
         "pretrained_ckpt": null
     },

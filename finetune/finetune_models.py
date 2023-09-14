@@ -34,7 +34,7 @@ class JESPR_Regression(pl.LightningModule):
         self.seq_encoder = seq_encoder
         self.optim_args = optim_args
         self.pred_linear = nn.Linear(
-            in_features=self.seq_encoder.joint_embedding_projection.out_features,
+            in_features=self.seq_encoder.joint_embedding_projection[-1].out_features,
             out_features=1,
         )
         self.mse_loss_fn = nn.MSELoss()
