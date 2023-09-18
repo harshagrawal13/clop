@@ -68,6 +68,7 @@
         "stochastic_weight_averaging": true,
         "stochastic_weight_averaging_lr": 1e-3,
         "detect_anomaly": true,
+        "deterministic": false,
         "grad_clip_val": 1.5,
         "grad_clip_algorithm": "norm",
         "checkpoint_id": null,
